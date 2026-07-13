@@ -38,30 +38,39 @@ kubectl create secret generic depot-db-secret -n "${NAMESPACE}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # ── Helm: install the Depot ingestion chart, auth OFF ────────────────────────
-# Auth is off for the one-time connector registration (the internal config API
-# is open with no token); flipped on afterward for the relay's token flow.
-helm repo add depot "${CHART_REPO}" >/dev/null
-helm repo update depot >/dev/null
+# The chart is an OCI artifact IgniteIQ published into THIS project's
+# depot-connectors repo (alongside the connector image); we pull it in-project —
+# no public Helm repo. Auth is off for the one-time connector registration (the
+# internal config API is open with no token); flipped on afterward for the
+# relay's token flow.
+gcloud auth print-access-token \
+  | helm registry login "${REGION}-docker.pkg.dev" -u oauth2accesstoken --password-stdin >/dev/null
 
+# Config values live under global.* (external Cloud SQL config database; the
+# password comes from the in-cluster secret created above). The workload SA is
+# pre-created (serviceAccount.create=false) with its Workload Identity binding.
 cat >/tmp/depot-values.yaml <<YAML
-auth:
-  enabled: false
-serviceAccount:
-  create: false
-  name: "${K8S_SA}"
-database:
-  host: "${SQL_PRIVATE_IP}"
-  port: "5432"
-  name: "${SQL_DB}"
-  user: "postgres"
-  passwordSecret: "depot-db-secret"
-  passwordSecretKey: "database-password"
-bundledPostgres:
-  enabled: false
+global:
+  auth:
+    enabled: false
+  database:
+    type: external
+    host: "${SQL_PRIVATE_IP}"
+    port: "5432"
+    database: "${SQL_DB}"
+    user: "postgres"
+    secretName: "depot-db-secret"
+    passwordSecretKey: "database-password"
+ingest:
+  serviceAccount:
+    create: false
+    name: "${K8S_SA}"
+  postgresql:
+    enabled: false
 YAML
 
 log "installing Depot ingestion runtime (auth off)"
-helm upgrade --install depot depot/"${CHART_NAME#depot/}" \
+helm upgrade --install depot "${CHART_OCI_REF}" \
   --version "${CHART_VERSION}" -n "${NAMESPACE}" -f /tmp/depot-values.yaml --wait --timeout 20m
 
 # ── Register the connector (auth off) via a port-forward ─────────────────────
@@ -108,8 +117,8 @@ printf '%s' "${ADMIN_PW}" | gcloud secrets create "depot-admin-password-${SLUG}"
   || printf '%s' "${ADMIN_PW}" | gcloud secrets versions add "depot-admin-password-${SLUG}" --data-file=- --project="${PROJECT_ID}"
 
 log "enabling auth"
-helm upgrade depot depot/"${CHART_NAME#depot/}" --version "${CHART_VERSION}" \
-  -n "${NAMESPACE}" -f /tmp/depot-values.yaml --set auth.enabled=true --wait --timeout 15m
+helm upgrade depot "${CHART_OCI_REF}" --version "${CHART_VERSION}" \
+  -n "${NAMESPACE}" -f /tmp/depot-values.yaml --set global.auth.enabled=true --wait --timeout 15m
 
 # The chart publishes client_credentials creds in an auth secret.
 CLIENT_ID="$(kubectl get secret depot-auth-secrets -n "${NAMESPACE}" -o jsonpath='{.data.instance-admin-client-id}' | base64 -d)"

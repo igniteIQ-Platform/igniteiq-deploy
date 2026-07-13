@@ -68,20 +68,16 @@ variable "igniteiq_publisher_sa" {
   description = "IgniteIQ SA that pushes the pinned Depot connector image into this project's depot-connectors repository (write-only on that repo). See the connector-push callback."
 }
 
-# ── Depot ingestion runtime artifacts (IgniteIQ-hosted, Depot-branded) ───────
-# The runtime is delivered as an IgniteIQ-hosted Helm chart and connector image
-# so nothing vendor-named ever appears in this customer-facing module.
-
-variable "depot_chart_repo" {
-  type        = string
-  default     = "https://charts.igniteiq.com"
-  description = "IgniteIQ-hosted Helm repository serving the Depot ingestion chart."
-}
+# ── Depot ingestion runtime artifacts (IgniteIQ-published, in-project) ───────
+# Both the connector image AND the ingestion Helm chart are OCI artifacts that
+# IgniteIQ publishes into THIS project's depot-connectors repository (via the
+# connector-push callback). The cluster pulls both from in-project — no public
+# Helm repo, no cross-project pull. Nothing vendor-named appears anywhere here.
 
 variable "depot_chart_name" {
   type        = string
-  default     = "depot/depot-ingest"
-  description = "Depot ingestion chart name within depot_chart_repo."
+  default     = "depot-ingest"
+  description = "Depot ingestion chart artifact name inside this project's depot-connectors repository (OCI Helm chart, published by IgniteIQ alongside the connector image)."
 }
 
 variable "depot_chart_version" {

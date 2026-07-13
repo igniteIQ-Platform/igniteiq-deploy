@@ -1,21 +1,22 @@
 # Depot connectors repository — lives in the customer's OWN project. IgniteIQ
-# pushes the pinned connector image into it (via the connector-push callback),
-# and the ingestion cluster pulls only from here — no public or cross-project
-# pull. The customer grants IgniteIQ write on THEIR repo (not the reverse), so
-# no grant-list accumulates on the IgniteIQ side.
+# publishes BOTH pinned runtime OCI artifacts into it (via the connector-push
+# callback): the connector image and the ingestion Helm chart. The cluster pulls
+# both only from here — no public Helm repo, no cross-project pull. The customer
+# grants IgniteIQ write on THEIR repo (not the reverse), so no grant-list
+# accumulates on the IgniteIQ side.
 
 resource "google_artifact_registry_repository" "depot_connectors" {
   project       = var.project_id
   location      = var.region
   repository_id = local.connector_repo
   format        = "DOCKER"
-  description   = "Depot connector images (IgniteIQ-published, tenant-local)."
+  description   = "Depot runtime artifacts — connector image + ingestion Helm chart (IgniteIQ-published, tenant-local)."
 
   depends_on = [google_project_service.enabled]
 }
 
-# IgniteIQ's publisher SA may WRITE the image into this repo. Write-only: it
-# cannot deploy, read data, or do anything else in the project.
+# IgniteIQ's publisher SA may WRITE the image + chart into this repo. Write-only:
+# it cannot deploy, read data, or do anything else in the project.
 resource "google_artifact_registry_repository_iam_member" "publisher_writer" {
   project    = var.project_id
   location   = google_artifact_registry_repository.depot_connectors.location

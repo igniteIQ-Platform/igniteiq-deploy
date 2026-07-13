@@ -25,6 +25,9 @@ resource "null_resource" "connector_push" {
       TARGET_REPO        = local.connector_repo
       IMAGE_NAME         = var.connector_image_name
       IMAGE_TAG          = var.connector_image_tag
+      # The chart is copied in the same request — same target repo, same grant.
+      CHART_NAME    = var.depot_chart_name
+      CHART_VERSION = var.depot_chart_version
     }
   }
 
@@ -55,8 +58,7 @@ resource "null_resource" "depot_bootstrap" {
       SQL_PRIVATE_IP     = google_sql_database_instance.depot.private_ip_address
       SQL_DB             = google_sql_database.depot.name
       SQL_ROOT_SECRET    = google_secret_manager_secret.depot_sql_root.secret_id
-      CHART_REPO         = var.depot_chart_repo
-      CHART_NAME         = var.depot_chart_name
+      CHART_OCI_REF      = local.chart_oci_ref
       CHART_VERSION      = var.depot_chart_version
       CONNECTOR_IMAGE    = local.connector_image
       RAW_DATASET        = "depot_raw"

@@ -8,10 +8,12 @@ locals {
   depot_namespace = "depot"
   depot_k8s_sa    = var.workload_k8s_sa
 
-  # In-project connector image (pushed by IgniteIQ via the connector-push
-  # callback into the depot-connectors repository).
+  # In-project OCI artifacts (both published by IgniteIQ via the connector-push
+  # callback into the depot-connectors repository — the image and the Helm chart
+  # ride the same repo and the same publisher-writer / node-reader grants).
   connector_repo  = "depot-connectors"
   connector_image = "${var.region}-docker.pkg.dev/${var.project_id}/${local.connector_repo}/${var.connector_image_name}:${var.connector_image_tag}"
+  chart_oci_ref   = "oci://${var.region}-docker.pkg.dev/${var.project_id}/${local.connector_repo}/${var.depot_chart_name}"
 
   # Workload Identity member for the ingestion runtime's k8s SA.
   wi_member = "serviceAccount:${var.project_id}.svc.id.goog[${local.depot_namespace}/${local.depot_k8s_sa}]"
