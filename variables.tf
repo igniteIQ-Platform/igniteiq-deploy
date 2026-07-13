@@ -101,6 +101,12 @@ variable "connector_image_tag" {
   description = "Pinned connector image tag (e.g. v0.5.0). The wizard supplies the current release; see igniteiq-depot manifest.json."
 }
 
+variable "workload_k8s_sa" {
+  type        = string
+  default     = "airbyte-admin"
+  description = "Cluster-internal Kubernetes service account the ingestion launcher gives connector pods (upstream JOB_KUBE_SERVICEACCOUNT — not chart-overridable, kubectl-only, never customer-facing). The module pre-creates this SA and binds Workload Identity to it; the name must match the runtime exactly."
+}
+
 # ── Sizing (sensible defaults; overridable) ──────────────────────────────────
 
 variable "sql_tier" {

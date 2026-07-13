@@ -1,7 +1,12 @@
 locals {
   # Kubernetes namespace + workload SA for the Depot ingestion runtime.
+  # NOTE: the workload SA name is fixed by the upstream ingestion runtime's
+  # internal launcher config (JOB_KUBE_SERVICEACCOUNT) and cannot be overridden
+  # by chart values. It is a cluster-INTERNAL, kubectl-only identity — never
+  # shown in Studio or the GCP console (ENG-260, boundary "P"). The pre-created
+  # SA + Workload Identity binding must match it exactly or connector pods fail.
   depot_namespace = "depot"
-  depot_k8s_sa    = "depot-ingest" # set via the Depot chart values (not a vendor default)
+  depot_k8s_sa    = var.workload_k8s_sa
 
   # In-project connector image (pushed by IgniteIQ via the connector-push
   # callback into the depot-connectors repository).

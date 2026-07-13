@@ -17,8 +17,8 @@ gcloud container clusters get-credentials depot-cluster \
 
 # ── Namespace + ingestion workload SA (pre-create before the chart) ──────────
 # The workload SA + its Role/RoleBinding must exist before the chart's
-# pre-install hook runs (ordering trap). Named depot-ingest (Depot-branded; the
-# Depot chart maps its job service-account to this via values).
+# pre-install hook runs (ordering trap). Its name (${K8S_SA}) is set by the
+# runtime's internal launcher config and is a cluster-internal identity only.
 kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
 kubectl create serviceaccount "${K8S_SA}" -n "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
 kubectl annotate serviceaccount "${K8S_SA}" -n "${NAMESPACE}" \
@@ -66,7 +66,9 @@ helm upgrade --install depot depot/"${CHART_NAME#depot/}" \
 
 # ── Register the connector (auth off) via a port-forward ─────────────────────
 log "registering connector"
-kubectl port-forward -n "${NAMESPACE}" svc/depot-server-svc 8001:8001 >/tmp/pf.log 2>&1 &
+# Find the ingestion server service by label (avoids hardcoding a resource name).
+SERVER_SVC="$(kubectl get svc -n "${NAMESPACE}" -l app.kubernetes.io/name=server -o jsonpath='{.items[0].metadata.name}')"
+kubectl port-forward -n "${NAMESPACE}" "svc/${SERVER_SVC}" 8001:8001 >/tmp/pf.log 2>&1 &
 PF_PID=$!
 trap 'kill ${PF_PID} 2>/dev/null || true' EXIT
 sleep 6
