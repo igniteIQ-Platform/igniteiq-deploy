@@ -1,0 +1,110 @@
+# ── Customer inputs (the wizard fills terraform.tfvars) ──────────────────────
+
+variable "project_id" {
+  type        = string
+  description = "The customer's GCP project ID — where the entire Depot stack is provisioned."
+}
+
+variable "region" {
+  type        = string
+  default     = "us-central1"
+  description = "GCP region for all regional resources."
+}
+
+variable "slug" {
+  type        = string
+  description = "Short lowercase tenant identifier (matches the Studio subdomain). Used to name secrets and resources."
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{1,38}$", var.slug))
+    error_message = "slug must be lowercase alphanumeric/hyphen, starting with a letter."
+  }
+}
+
+variable "servicetitan_tenant_id" {
+  type        = string
+  description = "The customer's ServiceTitan tenant ID (numeric)."
+}
+
+variable "igniteiq_org_id" {
+  type        = string
+  description = "The IgniteIQ organization ID this deployment belongs to (used by the completion callbacks)."
+}
+
+variable "provisioning_token" {
+  type        = string
+  sensitive   = true
+  description = "Short-lived, single-use, org-scoped token minted by the Studio wizard. The only credential in tfvars; authorizes the two completion callbacks and grants nothing else."
+}
+
+# ── IgniteIQ endpoints + identities (wizard supplies; sane defaults) ─────────
+
+variable "callback_base_url" {
+  type        = string
+  default     = "https://api.igniteiq.com"
+  description = "IgniteIQ Platform base URL for the connector-push and infra-ready callbacks."
+}
+
+variable "igniteiq_platform_sa" {
+  type        = string
+  default     = "1020933832935-compute@developer.gserviceaccount.com"
+  description = "IgniteIQ Platform runtime SA. Granted WRITE-ONLY secret access (secretVersionAdder) so Studio can vault ServiceTitan credentials into this project. Cannot read secrets back."
+}
+
+variable "igniteiq_forge_sa" {
+  type        = string
+  default     = "forge-runner@igniteiq-core.iam.gserviceaccount.com"
+  description = "IgniteIQ Forge (transform) SA. Granted BigQuery transform access on this project."
+}
+
+variable "igniteiq_vault_sa" {
+  type        = string
+  default     = "vault-sa@igniteiq-dev.iam.gserviceaccount.com"
+  description = "IgniteIQ Vault (query engine) SA. Granted read-only BigQuery access to the ontology dataset."
+}
+
+variable "igniteiq_publisher_sa" {
+  type        = string
+  default     = "connector-publisher@igniteiq-dev.iam.gserviceaccount.com"
+  description = "IgniteIQ SA that pushes the pinned Depot connector image into this project's depot-connectors repository (write-only on that repo). See the connector-push callback."
+}
+
+# ── Depot ingestion runtime artifacts (IgniteIQ-hosted, Depot-branded) ───────
+# The runtime is delivered as an IgniteIQ-hosted Helm chart and connector image
+# so nothing vendor-named ever appears in this customer-facing module.
+
+variable "depot_chart_repo" {
+  type        = string
+  default     = "https://charts.igniteiq.com"
+  description = "IgniteIQ-hosted Helm repository serving the Depot ingestion chart."
+}
+
+variable "depot_chart_name" {
+  type        = string
+  default     = "depot/depot-ingest"
+  description = "Depot ingestion chart name within depot_chart_repo."
+}
+
+variable "depot_chart_version" {
+  type        = string
+  default     = "1.8.5"
+  description = "Pinned Depot ingestion chart version."
+}
+
+variable "connector_image_name" {
+  type        = string
+  default     = "servicetitan"
+  description = "Connector image name inside this project's depot-connectors repository (pushed by IgniteIQ via the connector-push callback)."
+}
+
+variable "connector_image_tag" {
+  type        = string
+  description = "Pinned connector image tag (e.g. v0.5.0). The wizard supplies the current release; see igniteiq-depot manifest.json."
+}
+
+# ── Sizing (sensible defaults; overridable) ──────────────────────────────────
+
+variable "sql_tier" {
+  type        = string
+  default     = "db-custom-1-3840"
+  description = "Cloud SQL machine tier for the Depot config database."
+}
