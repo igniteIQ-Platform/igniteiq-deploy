@@ -27,32 +27,43 @@ cat terraform.tfvars
 ```
 Check `project_id`. Everything else was filled in by the wizard.
 
-## Step 2 — Prepare Terraform state
+## Step 2 — Pre-flight check
+Confirms your project is under a Google Cloud **Organization** and billing is on —
+before you spend 15–20 minutes deploying:
+```bash
+bash scripts/preflight.sh
+```
+If this fails with "not under a Google Cloud Organization," stop and set up
+[Cloud Identity](https://cloud.google.com/identity/docs/set-up-cloud-identity-admin)
+first (it's free and doesn't affect your email), then create the project under
+that org and re-run signed in as an organization account.
+
+## Step 3 — Prepare Terraform state
 ```bash
 bash scripts/bootstrap_state.sh
 ```
 This creates a small storage bucket in **your** project to hold Terraform state,
-then wires it up.
+then wires it up. (It re-runs the pre-flight check too.)
 
-## Step 3 — Make sure Terraform is installed
+## Step 4 — Make sure Terraform is installed
 Cloud Shell usually includes Terraform, but not always. This checks and installs
 it if needed (takes ~30 seconds the first time, instant otherwise):
 ```bash
 bash scripts/ensure_terraform.sh
 ```
 
-## Step 4 — Initialize
+## Step 5 — Initialize
 ```bash
 terraform init
 ```
 
-## Step 5 — Review
+## Step 6 — Review
 ```bash
 terraform plan
 ```
 You'll see the resources that will be created in your project.
 
-## Step 6 — Deploy
+## Step 7 — Deploy
 ```bash
 terraform apply
 ```

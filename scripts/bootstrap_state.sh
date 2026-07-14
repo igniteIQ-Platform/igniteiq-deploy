@@ -3,6 +3,10 @@
 # at it. Must run before `terraform init` (Cloud Shell state is ephemeral).
 set -euo pipefail
 
+# Enforce the pre-flight checks (org + billing) here too, so a skipped Step 2
+# can't lead to a half-provisioned run against an org-less project.
+bash "$(dirname "$0")/preflight.sh"
+
 PROJECT_ID="$(grep -E '^\s*project_id' terraform.tfvars | sed -E 's/.*=\s*"([^"]+)".*/\1/')"
 REGION="$(grep -E '^\s*region' terraform.tfvars | sed -E 's/.*=\s*"([^"]+)".*/\1/' || echo us-central1)"
 BUCKET="${PROJECT_ID}-igniteiq-tfstate"
