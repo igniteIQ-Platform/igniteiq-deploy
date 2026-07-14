@@ -5,7 +5,13 @@ This Cloud Shell tutorial provisions the IgniteIQ **Depot** data stack inside
 receives your Google credentials.
 
 ## Before you start
-- You are an **Owner** (or Editor + Project IAM Admin) of the target project.
+- Your business has a **Google Cloud Organization** (via Google Workspace or free
+  [Cloud Identity](https://cloud.google.com/identity/docs/set-up-cloud-identity-admin)),
+  and the target project lives **under that org**. A standalone project owned by a
+  personal `@gmail.com` account will not work — Google blocks the admin operations
+  this deploy needs. Cloud Identity is free and does not affect your existing email.
+- You are an **Owner** (or Editor + Project IAM Admin) of the target project, signed
+  in as an **organization account** (e.g. `you@yourcompany.com`, not a personal Gmail).
 - **Billing is enabled** on the project.
 - The Studio onboarding wizard gave you a **one-time setup code**.
 
