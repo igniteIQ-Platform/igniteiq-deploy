@@ -43,19 +43,16 @@ resource "google_project_iam_member" "forge_job_user" {
   member  = "serviceAccount:${var.igniteiq_forge_sa}"
 }
 
-resource "google_bigquery_dataset_iam_member" "forge_editor" {
-  for_each   = toset(["forge_staging", "forge_intermediate", "ontology"])
-  project    = var.project_id
-  dataset_id = google_bigquery_dataset.datasets[each.value].dataset_id
-  role       = "roles/bigquery.dataEditor"
-  member     = "serviceAccount:${var.igniteiq_forge_sa}"
-}
-
-resource "google_bigquery_dataset_iam_member" "forge_raw_viewer" {
-  project    = var.project_id
-  dataset_id = google_bigquery_dataset.datasets["depot_raw"].dataset_id
-  role       = "roles/bigquery.dataViewer"
-  member     = "serviceAccount:${var.igniteiq_forge_sa}"
+# Project-level dataEditor (matches the established tenants, e.g. tapps-data).
+# dbt CREATES output datasets on the fly — the staging/intermediate/ontology
+# models plus elementary's monitoring dataset (`armory_monitor`) — which needs
+# bigquery.datasets.create. Dataset-scoped grants can't do that, so the forge
+# run failed on the first customer with "does not have datasets.create". This
+# covers reading depot_raw + writing forge_*/ontology + creating what dbt needs.
+resource "google_project_iam_member" "forge_data_editor" {
+  project = var.project_id
+  role    = "roles/bigquery.dataEditor"
+  member  = "serviceAccount:${var.igniteiq_forge_sa}"
 }
 
 resource "google_project_iam_member" "vault_job_user" {
