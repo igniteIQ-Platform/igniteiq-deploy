@@ -23,38 +23,41 @@ Tracked as **ENG-252** (self-serve onboarding project).
 - Two completion callbacks to IgniteIQ (connector-push pre-flight, infra-ready)
 
 ## Nomenclature
-This is a **customer-facing** artifact, so it contains **no vendor names** —
-everything is Depot/Forge/Vault. The ingestion runtime is delivered as an
-**IgniteIQ-hosted, Depot-branded Helm chart** and connector image (see
-Prerequisites) precisely so the vendor never appears in the repo, the commands,
-or the running resources.
+This is a **customer-facing** artifact: everything you configure and every
+resource that lands in your project is Depot/Forge/Vault-branded — no vendor
+names in the variables, the commands, the tfvars, or the GCP console. The one
+exception is a handful of **cluster-internal, kubectl-only names** inside
+`scripts/depot_bootstrap.sh` (the ingestion runtime's workload service account
+`airbyte-admin` and the chart-generated `airbyte-auth-secrets`) — these are
+fixed by the upstream chart and never surface in anything you set or see in the
+console. See the "boundary P" note in the design doc.
 
-## Prerequisites (IgniteIQ-hosted — must exist before this module can apply)
-> These are IgniteIQ-side artifacts the module references via variables. They
-> are their own workstream (tracked separately).
-- **Depot ingestion Helm chart** at `var.depot_chart_repo` (`charts.igniteiq.com`)
-  exposing Depot-branded values (`auth.enabled`, `database.*`, `serviceAccount.name`,
-  `bundledPostgres.enabled`) and mapping its job service-account to `depot-ingest`.
-- **`connector-publisher@igniteiq-dev`** SA (or override) that the connector-push
-  callback uses to write into the customer's `depot-connectors` repo.
-- **`depot-relay` image** available to pull into the customer project, and the
-  relay reading `DEPOT_INTERNAL_URL` (not the legacy vendor env var).
-- Platform endpoints `POST /api/onboarding/connector-push` and
-  `POST /api/onboarding/infra-ready` (ENG-254 / ENG-259).
+## Prerequisites (IgniteIQ-hosted — referenced by the module/callbacks)
+> IgniteIQ-side artifacts the module + callbacks rely on. Nothing for you to set up.
+- **Depot ingestion runtime** (connector image, Helm chart, and relay image) is
+  delivered as **in-project OCI artifacts**: the `connector-push` callback copies
+  all three into your own `depot-connectors` repo (nothing pulled from a public
+  registry). The bootstrap installs the chart via `oci://<project>/depot-connectors/depot-ingest`.
+- **`connector-publisher@igniteiq-dev`** SA that the connector-push callback uses
+  to write those artifacts into your `depot-connectors` repo (write-only).
+- Platform callbacks `POST /api/onboarding/connector-push` and
+  `POST /api/onboarding/infra-ready`, then `onboarding-finalize` (ENG-259 / 254 / 255).
 
 ## Status
-Module written 2026-07-13; `terraform validate` clean. **NOT yet applied** —
-end-to-end validation against throwaway projects is **ENG-258** (expect the
-three ordering traps — PSA→SQL, k8s-SA→chart, auth-off→register→auth-on — to
-need real-apply shakeout). Do not point a real customer at this until ENG-258
-passes.
+`terraform validate` clean and **applied end-to-end on a real project** — the
+full chain (module → connector-push → GKE + Cloud SQL bootstrap → infra-ready)
+passed in the ENG-258 sandbox validation (2026-07-13). The three ordering traps
+(PSA→SQL, WI-binding→cluster, auth-off→register→auth-on) are handled.
 
-## Usage (normally the wizard drives this)
+## Launch it (normally the Studio wizard drives this)
+The wizard shows a **"Deploy to Google Cloud"** button — a Cloud Shell deep link
+that clones this repo in the customer's account and opens the tutorial:
+```
+https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/igniteIQ-Platform/igniteiq-deploy&cloudshell_tutorial=tutorial.md
+```
+Manual (from a clone with `terraform.tfvars` in place):
 ```bash
-# 1. wizard generates terraform.tfvars (see terraform.tfvars.example)
 bash scripts/bootstrap_state.sh   # create the customer-owned state bucket (D3)
-terraform init
-terraform plan
-terraform apply                    # ~15–20 min
-# → infra-ready callback fires → Studio detects → Connect ServiceTitan
+terraform init && terraform apply  # ~15–20 min
+# → connector-push + infra-ready callbacks fire → Studio detects → Connect ServiceTitan
 ```

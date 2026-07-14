@@ -7,15 +7,19 @@ receives your Google credentials.
 ## Before you start
 - You are an **Owner** (or Editor + Project IAM Admin) of the target project.
 - **Billing is enabled** on the project.
-- The onboarding wizard generated your `terraform.tfvars` (already in this
-  workspace).
+- The Studio onboarding wizard gave you a **one-time setup code**.
 
-## Step 1 — Confirm your settings
+## Step 1 — Fetch your settings
+Paste the one-time code the wizard showed you:
+```bash
+bash scripts/fetch_config.sh <your-code>
+```
+This securely downloads your `terraform.tfvars` (project ID + a short-lived
+provisioning token) over HTTPS. Then confirm it:
 ```bash
 cat terraform.tfvars
 ```
-Check `project_id` and `servicetitan_tenant_id`. Everything else was filled by
-the wizard.
+Check `project_id`. Everything else was filled in by the wizard.
 
 ## Step 2 — Prepare Terraform state
 ```bash
