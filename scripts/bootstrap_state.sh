@@ -21,4 +21,4 @@ terraform {
 }
 HCL
 
-echo "[state] backend.tf points at gs://${BUCKET}. Run: terraform init"
+echo "[state] backend.tf points at gs://${BUCKET}. Next: bash scripts/ensure_terraform.sh && terraform init"

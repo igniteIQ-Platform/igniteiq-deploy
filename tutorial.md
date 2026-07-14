@@ -28,18 +28,25 @@ bash scripts/bootstrap_state.sh
 This creates a small storage bucket in **your** project to hold Terraform state,
 then wires it up.
 
-## Step 3 — Initialize
+## Step 3 — Make sure Terraform is installed
+Cloud Shell usually includes Terraform, but not always. This checks and installs
+it if needed (takes ~30 seconds the first time, instant otherwise):
+```bash
+bash scripts/ensure_terraform.sh
+```
+
+## Step 4 — Initialize
 ```bash
 terraform init
 ```
 
-## Step 4 — Review
+## Step 5 — Review
 ```bash
 terraform plan
 ```
 You'll see the resources that will be created in your project.
 
-## Step 5 — Deploy
+## Step 6 — Deploy
 ```bash
 terraform apply
 ```

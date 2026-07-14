@@ -57,7 +57,8 @@ https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://git
 ```
 Manual (from a clone with `terraform.tfvars` in place):
 ```bash
-bash scripts/bootstrap_state.sh   # create the customer-owned state bucket (D3)
+bash scripts/bootstrap_state.sh    # create the customer-owned state bucket (D3)
+bash scripts/ensure_terraform.sh   # install Terraform if Cloud Shell lacks it
 terraform init && terraform apply  # ~15–20 min
 # → connector-push + infra-ready callbacks fire → Studio detects → Connect ServiceTitan
 ```

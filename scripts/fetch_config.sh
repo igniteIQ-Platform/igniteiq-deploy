@@ -35,4 +35,4 @@ if [[ "${HTTP}" != "200" ]]; then
 fi
 
 echo "[fetch-config] wrote terraform.tfvars."
-echo "[fetch-config] next: bash scripts/bootstrap_state.sh && terraform init && terraform apply"
+echo "[fetch-config] next: bash scripts/bootstrap_state.sh && bash scripts/ensure_terraform.sh && terraform init && terraform apply"
