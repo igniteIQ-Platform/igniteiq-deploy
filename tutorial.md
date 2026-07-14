@@ -13,6 +13,10 @@ receives your Google credentials.
 - You are an **Owner** (or Editor + Project IAM Admin) of the target project, signed
   in as an **organization account** (e.g. `you@yourcompany.com`, not a personal Gmail).
 - **Billing is enabled** on the project.
+- If your org enforces **Domain restricted sharing** (`iam.allowedPolicyMemberDomains`),
+  allowlist IgniteIQ's customer ID **`C0178jm4f`** on this project (Console → IAM &
+  Admin → Organization Policies), or the deploy can't grant IgniteIQ's service
+  accounts access. The pre-flight check (Step 2) detects this and tells you.
 - The Studio onboarding wizard gave you a **one-time setup code**.
 
 ## Step 1 — Fetch your settings

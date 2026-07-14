@@ -51,4 +51,36 @@ else
   echo "[preflight] ⚠ could not confirm billing is enabled on ${PROJECT_ID} — make sure it is before you continue." >&2
 fi
 
+# 3) DOMAIN RESTRICTED SHARING — a Cloud Identity / Workspace org enables
+#    iam.allowedPolicyMemberDomains by default (own customer-id only). The deploy
+#    grants IAM to IgniteIQ service accounts, which that policy would reject
+#    ("not in permitted organization") — so catch it here, not 5 min into apply.
+IGNITEIQ_CUSTOMER_ID="C0178jm4f"
+POLICY="$(gcloud org-policies describe iam.allowedPolicyMemberDomains --project="${PROJECT_ID}" --effective --format=json 2>/dev/null \
+  || gcloud resource-manager org-policies describe iam.allowedPolicyMemberDomains --project="${PROJECT_ID}" --effective --format=json 2>/dev/null \
+  || echo '{}')"
+if grep -q "${IGNITEIQ_CUSTOMER_ID}" <<<"${POLICY}"; then
+  echo "[preflight] ✓ domain-restricted sharing allowlists IgniteIQ (${IGNITEIQ_CUSTOMER_ID})"
+elif grep -qE '"allowAll"[[:space:]]*:[[:space:]]*true|"allValues"[[:space:]]*:[[:space:]]*"ALLOW"' <<<"${POLICY}"; then
+  echo "[preflight] ✓ domain-restricted sharing allows all (not restricted)"
+elif grep -q 'allowedValues' <<<"${POLICY}"; then
+  cat >&2 <<EOF
+
+  ✗ Domain restricted sharing (iam.allowedPolicyMemberDomains) is enforced on this
+    project and does NOT permit IgniteIQ. The deploy grants IAM to IgniteIQ service
+    accounts, which will be rejected ("not in permitted organization").
+
+    Fix — Console → IAM & Admin → Organization Policies → "Domain restricted
+    sharing" → Manage policy on project ${PROJECT_ID}:
+      • Override parent's policy → add a rule → "Merge with parent" → Allowed →
+        add the value:  ${IGNITEIQ_CUSTOMER_ID}
+      • (or set the rule to "Allow All" for this project)
+    Save, wait ~1-2 min, then re-run.
+
+EOF
+  exit 1
+else
+  echo "[preflight] ✓ domain-restricted sharing not enforced"
+fi
+
 echo "[preflight] checks passed — continue: bash scripts/bootstrap_state.sh"
