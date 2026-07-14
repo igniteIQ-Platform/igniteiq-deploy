@@ -3,26 +3,34 @@
 #
 # Google Cloud Shell has historically bundled Terraform, but some environments
 # (personal-account shells, minimal/updated images) don't — the first real
-# customer run hit exactly this. This checks for it and installs from the
-# official HashiCorp apt repo if missing. Idempotent: safe to run repeatedly.
+# customer run hit exactly this. We install a pinned static binary straight into
+# /usr/local/bin (on PATH, no apt repo / gpg dance, which proved flaky in Cloud
+# Shell). Idempotent: no-op if a compatible terraform is already present.
 set -euo pipefail
+
+# Module requires >= 1.5 (versions.tf). Pin a known-good release.
+TF_VERSION="${TF_VERSION:-1.9.8}"
 
 if command -v terraform >/dev/null 2>&1; then
   echo "[terraform] already installed: $(terraform version | head -1)"
   exit 0
 fi
 
-echo "[terraform] not found — installing from the HashiCorp apt repo..."
+# Map uname -> HashiCorp release arch
+case "$(uname -m)" in
+  x86_64|amd64) ARCH="amd64" ;;
+  aarch64|arm64) ARCH="arm64" ;;
+  *) echo "[terraform] unsupported arch $(uname -m); install manually from https://developer.hashicorp.com/terraform/install" >&2; exit 1 ;;
+esac
 
-# GPG key (--yes so a re-run doesn't fail on an existing keyring)
-wget -qO - https://apt.releases.hashicorp.com/gpg \
-  | sudo gpg --dearmor --yes -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+ZIP="terraform_${TF_VERSION}_linux_${ARCH}.zip"
+URL="https://releases.hashicorp.com/terraform/${TF_VERSION}/${ZIP}"
 
-CODENAME="$(grep -oP '(?<=UBUNTU_CODENAME=).*' /etc/os-release 2>/dev/null || lsb_release -cs)"
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com ${CODENAME} main" \
-  | sudo tee /etc/apt/sources.list.d/hashicorp.list >/dev/null
-
-sudo apt-get update -qq
-sudo apt-get install -y terraform
+echo "[terraform] not found — installing v${TF_VERSION} (${ARCH}) from ${URL}"
+TMP="$(mktemp -d)"
+curl -fsSL "${URL}" -o "${TMP}/tf.zip"
+unzip -o -q "${TMP}/tf.zip" -d "${TMP}"
+sudo mv "${TMP}/terraform" /usr/local/bin/terraform
+rm -rf "${TMP}"
 
 echo "[terraform] installed: $(terraform version | head -1)"
