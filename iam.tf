@@ -22,10 +22,15 @@ resource "google_project_iam_member" "depot_bq_job_user" {
 }
 
 # Workload Identity: the ingestion runtime's k8s SA impersonates depot-sa.
+# MUST wait for the cluster — the `<project>.svc.id.goog` identity pool that
+# local.wi_member references only comes into existence once a Workload-Identity
+# cluster is created (ordering trap surfaced in the first sandbox apply, ENG-258).
 resource "google_service_account_iam_member" "depot_wi" {
   service_account_id = google_service_account.depot.name
   role               = "roles/iam.workloadIdentityUser"
   member             = local.wi_member
+
+  depends_on = [google_container_cluster.depot]
 }
 
 # ── IgniteIQ data-plane grants (Forge transforms, Vault queries) ─────────────

@@ -86,17 +86,33 @@ WORKSPACE_ID="$(curl -s http://localhost:8001/api/public/v1/workspaces \
   | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"][0]["workspaceId"])')"
 log "workspace ${WORKSPACE_ID}"
 
-SOURCE_DEF_ID="$(curl -s -X POST http://localhost:8001/api/v1/source_definitions/create_custom \
-  -H 'Content-Type: application/json' --max-time 200 \
-  -d "{\"workspaceId\":\"${WORKSPACE_ID}\",\"sourceDefinition\":{\"name\":\"ServiceTitan\",\"dockerRepository\":\"${CONNECTOR_IMAGE%:*}\",\"dockerImageTag\":\"${CONNECTOR_IMAGE##*:}\",\"documentationUrl\":\"https://igniteiq.com\"}}" \
-  | python3 -c 'import sys,json;print(json.load(sys.stdin)["sourceDefinitionId"])')"
-log "connector registered (${SOURCE_DEF_ID})"
+# Idempotent: reuse the existing custom definition for this image if already
+# registered (this whole script re-runs on any terraform re-apply).
+DEF_REPO="${CONNECTOR_IMAGE%:*}"
+SOURCE_DEF_ID="$(curl -s -X POST http://localhost:8001/api/v1/source_definitions/list_for_workspace \
+  -H 'Content-Type: application/json' -d "{\"workspaceId\":\"${WORKSPACE_ID}\"}" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(next((x['sourceDefinitionId'] for x in d.get('sourceDefinitions',[]) if x.get('dockerRepository')=='${DEF_REPO}'), ''))")"
+if [ -z "${SOURCE_DEF_ID}" ]; then
+  SOURCE_DEF_ID="$(curl -s -X POST http://localhost:8001/api/v1/source_definitions/create_custom \
+    -H 'Content-Type: application/json' --max-time 200 \
+    -d "{\"workspaceId\":\"${WORKSPACE_ID}\",\"sourceDefinition\":{\"name\":\"ServiceTitan\",\"dockerRepository\":\"${DEF_REPO}\",\"dockerImageTag\":\"${CONNECTOR_IMAGE##*:}\",\"documentationUrl\":\"https://igniteiq.com\"}}" \
+    | python3 -c 'import sys,json;print(json.load(sys.stdin)["sourceDefinitionId"])')"
+  log "connector registered (${SOURCE_DEF_ID})"
+else
+  log "connector already registered (${SOURCE_DEF_ID}) — reusing"
+fi
 
 # BigQuery destination — ADC via Workload Identity (no credentials_json); raw
-# working set lands in depot_internal, not the vendor default.
-curl -s -X POST http://localhost:8001/api/v1/destinations/create -H 'Content-Type: application/json' \
-  -d "{\"workspaceId\":\"${WORKSPACE_ID}\",\"name\":\"BigQuery\",\"destinationDefinitionId\":\"22f6c74f-5699-40ff-833c-4a879ea40133\",\"connectionConfiguration\":{\"project_id\":\"${PROJECT_ID}\",\"dataset_id\":\"${RAW_DATASET}\",\"dataset_location\":\"US\",\"raw_data_dataset\":\"${INTERNAL_DATASET}\",\"loading_method\":{\"method\":\"Standard\"}}}" >/dev/null
-log "BigQuery destination created"
+# working set lands in depot_internal, not the vendor default. Idempotent.
+if curl -s -X POST http://localhost:8001/api/v1/destinations/list -H 'Content-Type: application/json' \
+    -d "{\"workspaceId\":\"${WORKSPACE_ID}\"}" \
+    | python3 -c "import sys,json; sys.exit(0 if any(x.get('name')=='BigQuery' for x in json.load(sys.stdin).get('destinations',[])) else 1)"; then
+  log "BigQuery destination already exists — skipping"
+else
+  curl -s -X POST http://localhost:8001/api/v1/destinations/create -H 'Content-Type: application/json' \
+    -d "{\"workspaceId\":\"${WORKSPACE_ID}\",\"name\":\"BigQuery\",\"destinationDefinitionId\":\"22f6c74f-5699-40ff-833c-4a879ea40133\",\"connectionConfiguration\":{\"project_id\":\"${PROJECT_ID}\",\"dataset_id\":\"${RAW_DATASET}\",\"dataset_location\":\"US\",\"raw_data_dataset\":\"${INTERNAL_DATASET}\",\"loading_method\":{\"method\":\"Standard\"}}}" >/dev/null
+  log "BigQuery destination created"
+fi
 
 kill ${PF_PID} 2>/dev/null || true
 trap - EXIT
@@ -120,9 +136,12 @@ log "enabling auth"
 helm upgrade depot "${CHART_OCI_REF}" --version "${CHART_VERSION}" \
   -n "${NAMESPACE}" -f /tmp/depot-values.yaml --set global.auth.enabled=true --wait --timeout 15m
 
-# The chart publishes client_credentials creds in an auth secret.
-CLIENT_ID="$(kubectl get secret depot-auth-secrets -n "${NAMESPACE}" -o jsonpath='{.data.instance-admin-client-id}' | base64 -d)"
-CLIENT_SECRET="$(kubectl get secret depot-auth-secrets -n "${NAMESPACE}" -o jsonpath='{.data.instance-admin-client-secret}' | base64 -d)"
+# The chart publishes client_credentials creds in the auth secret. The chart
+# generates this secret itself with the fixed name `airbyte-auth-secrets`
+# (kubectl-only internal); the instance-admin-client-id/-secret keys drive the
+# relay's token flow.
+CLIENT_ID="$(kubectl get secret airbyte-auth-secrets -n "${NAMESPACE}" -o jsonpath='{.data.instance-admin-client-id}' | base64 -d)"
+CLIENT_SECRET="$(kubectl get secret airbyte-auth-secrets -n "${NAMESPACE}" -o jsonpath='{.data.instance-admin-client-secret}' | base64 -d)"
 printf '%s' "${CLIENT_ID}"     | gcloud secrets create "depot-client-id-${SLUG}"     --data-file=- --project="${PROJECT_ID}" --replication-policy=automatic 2>/dev/null || true
 printf '%s' "${CLIENT_SECRET}" | gcloud secrets create "depot-client-secret-${SLUG}" --data-file=- --project="${PROJECT_ID}" --replication-policy=automatic 2>/dev/null || true
 
