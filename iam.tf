@@ -78,3 +78,24 @@ resource "google_project_iam_member" "platform_secret_version_adder" {
   role    = "roles/secretmanager.secretVersionAdder"
   member  = "serviceAccount:${var.igniteiq_platform_sa}"
 }
+
+# The Platform / Studio API reads the customer's BigQuery to power the Data
+# explorer pages (Raw / Models / Marts / Dictionary). READ-ONLY, matching the
+# established tenants (tapps-data). metadataViewer lets it list tables/lineage
+# without reading rows; dataViewer + jobUser let it run the listing queries.
+# Without these the Studio "Raw Tables" page 403s ("no bigquery.jobs.create").
+resource "google_project_iam_member" "platform_bq_job_user" {
+  project = var.project_id
+  role    = "roles/bigquery.jobUser"
+  member  = "serviceAccount:${var.igniteiq_platform_sa}"
+}
+resource "google_project_iam_member" "platform_bq_data_viewer" {
+  project = var.project_id
+  role    = "roles/bigquery.dataViewer"
+  member  = "serviceAccount:${var.igniteiq_platform_sa}"
+}
+resource "google_project_iam_member" "platform_bq_metadata_viewer" {
+  project = var.project_id
+  role    = "roles/bigquery.metadataViewer"
+  member  = "serviceAccount:${var.igniteiq_platform_sa}"
+}
