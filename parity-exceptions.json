@@ -1,0 +1,14 @@
+{
+  "_comment": "Deliberate, accepted deviations from the terraform declaration (ENG-433). An entry here does NOT hide a finding — check_provision_parity.py still prints it, marked ACCEPTED with its reason, and only stops it failing the run. The point is that a check carrying a permanent known failure trains people to ignore it, while a check that can never be silenced gets bypassed instead. Both fail; an explicit, dated, reasoned exception is the honest middle. Every entry needs a reason, a date and an owner — an exception with no reason is indistinguishable from a bug someone gave up on.",
+  "_schema": "match = substring of the failure line. Keep it specific enough to not swallow a future, different finding.",
+  "exceptions": [
+    {
+      "match": "WIDER THAN SPEC: serviceAccount:vault-sa@igniteiq-dev.iam.gserviceaccount.com holds roles/bigquery.dataViewer at PROJECT level",
+      "projects": ["eco-igniteiq-data", "reynolds-igniteiq-data", "tapps-data", "redwood-igniteiq-data", "ignite-iq", "airworks-igniteiq-data"],
+      "reason": "Every hand-provisioned tenant holds this at project level rather than dataset-scoped on `ontology` as iam.tf declares — I introduced it on Eco by copying Reynolds, and Reynolds and Tapps already had it, so the drift predates Eco. Fixing it requires REVOKING a live binding on the query engine's identity, and Ryan's standing rule is that no IAM revoke happens without his approval (additive only). The dataset-scoped grant the module declares has been added additively to eco/reynolds/tapps, so Vault's access is now correct-and-also-wider rather than wrong. Revoking the project-level binding is the remaining step and is deliberately deferred.",
+      "accepted_by": "Ryan (2026-08-04, 'perform no revokes - only additive')",
+      "accepted_on": "2026-08-04",
+      "review": "Revisit with the Vault least-privilege pass. Verify in a non-prod tenant first: vault-sa reads ONLY ontology today, but a dashboard or agent querying a forge_* or depot_raw table directly would break on revoke, and that has not been measured."
+    }
+  ]
+}

@@ -330,6 +330,31 @@ def self_test() -> int:
     return 0
 
 
+def _split_accepted(failures: list[str], project: str) -> tuple[list[str], list[tuple[str, dict]]]:
+    """Partition failures into (still-failing, accepted). Missing/malformed exceptions file =>
+    nothing is accepted, i.e. it fails closed. An unreadable allowlist must never widen what
+    passes ([[gate_may_not_be_on_every_path]])."""
+    path = REPO / "parity-exceptions.json"
+    try:
+        exceptions = json.loads(path.read_text()).get("exceptions", [])
+    except Exception:
+        return failures, []
+
+    still, ok = [], []
+    for f in failures:
+        for exc in exceptions:
+            match = exc.get("match", "")
+            projects = exc.get("projects") or []
+            # An exception with no reason is indistinguishable from a bug someone gave up on,
+            # so it does not count as accepted.
+            if match and match in f and project in projects and exc.get("reason"):
+                ok.append((f, exc))
+                break
+        else:
+            still.append(f)
+    return still, ok
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--project")
@@ -345,10 +370,20 @@ def main() -> int:
 
     spec = Spec(a.project, a.slug)
     print(f"Comparing {a.project} (slug={a.slug}) against the terraform declaration in {REPO.name}/\n")
-    failures = compare(spec, a.impersonate or None)
+    all_failures = compare(spec, a.impersonate or None)
+    failures, accepted = _split_accepted(all_failures, a.project)
+
+    # Accepted items are PRINTED, never hidden. A check that can only ever be red trains people
+    # to ignore it; a check that can be silenced gets used to bury things. Showing the exception
+    # with its reason is the honest middle — the finding stays visible, it just stops gating.
+    for f, exc in accepted:
+        print(f"  ACCEPTED  {f}")
+        print(f"            └─ {exc['reason'][:200]}")
+        print(f"            └─ accepted by {exc.get('accepted_by', '?')}\n")
 
     if not failures:
-        print(f"PASS — {a.project} matches the declaration "
+        extra = f", {len(accepted)} accepted exception(s)" if accepted else ""
+        print(f"PASS — {a.project} matches the declaration{extra} "
               f"({len(spec.project_iam)} project IAM, {len(spec.dataset_iam)} dataset IAM, "
               f"{len(spec.secrets)} secrets, {len(spec.secret_iam)} secret IAM).")
         return 0
