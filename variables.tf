@@ -110,3 +110,9 @@ variable "sql_tier" {
   default     = "db-custom-1-3840"
   description = "Cloud SQL machine tier for the Depot config database."
 }
+
+variable "igniteiq_auditor_sa" {
+  type        = string
+  default     = "tenant-auditor@igniteiq-dev.iam.gserviceaccount.com"
+  description = "IgniteIQ read-only posture auditor. Granted a project-level custom role that can read IAM bindings, org-policy settings and secret NAMES — and cannot read this project's data, cannot read secret payloads, and cannot modify anything (ENG-433). Deliberately a separate identity from every other grant here so that claim stays true."
+}

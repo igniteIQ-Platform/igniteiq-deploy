@@ -1,0 +1,55 @@
+# Tenant posture auditor — a project-level custom role granted to IgniteIQ's read-only
+# audit identity, tenant-auditor@igniteiq-dev.iam.gserviceaccount.com (ENG-433).
+#
+# WHY IT EXISTS. We could not verify Jolly's access configuration at all: no identity we hold
+# could read its IAM policy. Jolly self-provisioned, so that is the sovereignty model working
+# as intended rather than a bug — but it means the one tenant we did not build is the one we
+# cannot audit, and the gap recurs for every future self-serve customer.
+#
+# WHY NOT roles/viewer. Viewer would grant read access to the customer's actual DATA, which is
+# far more than an audit needs and a worse answer in their security review than the status quo.
+#
+# WHY NOT roles/iam.securityReviewer. It is genuinely metadata-only — verified: no
+# bigquery.tables.getData, no secretmanager.versions.access — but it carries 2,515 permissions.
+# That number stalls a security review even when every one of them is harmless. Eight explicit
+# permissions can be read and approved in a single screen.
+#
+# WHAT IT CANNOT DO, verified against redwood-igniteiq-data on 2026-08-04 with this exact role
+# bound to that exact identity, all three checks in the same minute:
+#
+#   list secret NAMES        -> 200   (permitted, and the point)
+#   read a secret PAYLOAD    -> 403
+#   query the project's data -> 403
+#
+# Those are the claims we make to customers, so they are tested rather than asserted.
+#
+# Apply by hand (self-serve or retrofit):
+#   gcloud iam roles create tenantPostureAuditor --project=<PROJECT> \
+#     --file=roles/tenant_posture_auditor.yaml
+#   gcloud projects add-iam-policy-binding <PROJECT> \
+#     --member="serviceAccount:tenant-auditor@igniteiq-dev.iam.gserviceaccount.com" \
+#     --role="projects/<PROJECT>/roles/tenantPostureAuditor"
+#
+# ⚠️ A custom role is usable only within the project (or org) that defines it, so this is
+# created per customer project. That is why it lives in the module rather than in ours.
+title: "Tenant posture auditor"
+description: "Read-only. Verifies that this project's access configuration still matches what IgniteIQ deployed. Cannot read project data, cannot read secret payloads, cannot modify anything."
+stage: GA
+includedPermissions:
+  # Read the IAM policy — the one permission whose absence blocked auditing Jolly entirely.
+  - resourcemanager.projects.get
+  - resourcemanager.projects.getIamPolicy
+  # Read effective organization policy, so posture is reportable rather than assumed.
+  - orgpolicy.policy.get
+  - orgpolicy.policies.list
+  # Secret NAMES only. Deliberately excludes secretmanager.versions.access, which is what
+  # would let it read a credential. Listing proves the four shells exist; nothing more.
+  - secretmanager.secrets.list
+  # Confirm the APIs the module requires are actually enabled.
+  - serviceusage.services.list
+  # See which service accounts exist in-project (depot-sa and the Google defaults).
+  - iam.serviceAccounts.list
+  # Dataset ACLs — needed because the module grants vault-sa dataViewer on `ontology` only,
+  # and a project-level read cannot tell you whether that dataset-scoped grant is present.
+  # datasets.get returns metadata and the ACL. It does NOT return rows.
+  - bigquery.datasets.get
