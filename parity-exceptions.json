@@ -1,14 +1,61 @@
 {
-  "_comment": "Deliberate, accepted deviations from the terraform declaration (ENG-433). An entry here does NOT hide a finding — check_provision_parity.py still prints it, marked ACCEPTED with its reason, and only stops it failing the run. The point is that a check carrying a permanent known failure trains people to ignore it, while a check that can never be silenced gets bypassed instead. Both fail; an explicit, dated, reasoned exception is the honest middle. Every entry needs a reason, a date and an owner — an exception with no reason is indistinguishable from a bug someone gave up on.",
+  "_comment": "Deliberate, accepted deviations from the terraform declaration (ENG-433). An entry here does NOT hide a finding \u2014 check_provision_parity.py still prints it, marked ACCEPTED with its reason, and only stops it failing the run. The point is that a check carrying a permanent known failure trains people to ignore it, while a check that can never be silenced gets bypassed instead. Both fail; an explicit, dated, reasoned exception is the honest middle. Every entry needs a reason, a date and an owner \u2014 an exception with no reason is indistinguishable from a bug someone gave up on.",
   "_schema": "match = substring of the failure line. Keep it specific enough to not swallow a future, different finding.",
   "exceptions": [
     {
       "match": "WIDER THAN SPEC: serviceAccount:vault-sa@igniteiq-dev.iam.gserviceaccount.com holds roles/bigquery.dataViewer at PROJECT level",
-      "projects": ["eco-igniteiq-data", "reynolds-igniteiq-data", "tapps-data", "redwood-igniteiq-data", "ignite-iq", "airworks-igniteiq-data"],
-      "reason": "Every hand-provisioned tenant holds this at project level rather than dataset-scoped on `ontology` as iam.tf declares — I introduced it on Eco by copying Reynolds, and Reynolds and Tapps already had it, so the drift predates Eco. Fixing it requires REVOKING a live binding on the query engine's identity, and Ryan's standing rule is that no IAM revoke happens without his approval (additive only). The dataset-scoped grant the module declares has been added additively to eco/reynolds/tapps, so Vault's access is now correct-and-also-wider rather than wrong. Revoking the project-level binding is the remaining step and is deliberately deferred.",
+      "projects": [
+        "eco-igniteiq-data",
+        "reynolds-igniteiq-data",
+        "tapps-data",
+        "redwood-igniteiq-data",
+        "ignite-iq",
+        "airworks-igniteiq-data"
+      ],
+      "reason": "Every hand-provisioned tenant holds this at project level rather than dataset-scoped on `ontology` as iam.tf declares \u2014 I introduced it on Eco by copying Reynolds, and Reynolds and Tapps already had it, so the drift predates Eco. Fixing it requires REVOKING a live binding on the query engine's identity, and Ryan's standing rule is that no IAM revoke happens without his approval (additive only). The dataset-scoped grant the module declares has been added additively to eco/reynolds/tapps, so Vault's access is now correct-and-also-wider rather than wrong. Revoking the project-level binding is the remaining step and is deliberately deferred.",
       "accepted_by": "Ryan (2026-08-04, 'perform no revokes - only additive')",
       "accepted_on": "2026-08-04",
       "review": "Revisit with the Vault least-privilege pass. Verify in a non-prod tenant first: vault-sa reads ONLY ontology today, but a dashboard or agent querying a forge_* or depot_raw table directly would break on revoke, and that has not been measured."
+    },
+    {
+      "match": "-> serviceAccount:depot-sa@airworks-igniteiq-data.iam.gserviceaccount.com",
+      "projects": [
+        "airworks-igniteiq-data"
+      ],
+      "reason": "Airworks is the last abctl-VM holdout (ENG-281) and was never provisioned by this module. It has no depot-sa at all \u2014 ingestion runs on a VM with a service-account KEY (`airbyte-sa-key` in its GSM) rather than Workload Identity. So these are architectural non-matches, not missing grants. They resolve when Airworks migrates to Depot-on-GKE, at which point the exception should be DELETED rather than updated.",
+      "accepted_by": "Ryan (2026-08-04, additive-only)",
+      "accepted_on": "2026-08-04",
+      "review": "Delete on ENG-281 completion. Note the VM path needs an SA key, which Eco's org forbids via iam.disableServiceAccountKeyCreation \u2014 a tenant with that policy could not run the abctl path at all."
+    },
+    {
+      "match": "-> serviceAccount:depot-sa@redwood-igniteiq-data.iam.gserviceaccount.com",
+      "projects": [
+        "redwood-igniteiq-data"
+      ],
+      "reason": "Redwood is the internal demo tenant with NO live Depot sync by design (its 29 dbt source-freshness failures are expected for the same reason). There is no ingestion runtime to grant, so depot-sa legitimately does not exist. Not a customer project.",
+      "accepted_by": "Ryan (2026-08-04, 'redwood is demo but you can check it')",
+      "accepted_on": "2026-08-04",
+      "review": "Permanent while Redwood stays a static demo. If it ever gets a live sync, delete this."
+    },
+    {
+      "match": "secret missing: depot-relay-secret-airworks",
+      "projects": [
+        "airworks-igniteiq-data"
+      ],
+      "reason": "Airworks' relay exists (depot-relay-514287425201) and its shared secret is held in the Platform DB (Organization.depotRelaySecret), not in the customer's GSM \u2014 it predates this module, which generates the value and stores it project-side. Creating an EMPTY shell of that name would be worse than absent: it would look authoritative while holding nothing. Left alone deliberately.",
+      "accepted_by": "Ryan (2026-08-04, additive-only)",
+      "accepted_on": "2026-08-04",
+      "review": "Resolve with ENG-281's migration, which would provision the relay through the module."
+    },
+    {
+      "match": "UNVERIFIABLE: cannot read dataset 'ontology' ACL",
+      "projects": [
+        "airworks-igniteiq-data"
+      ],
+      "reason": "customer-deployer cannot read airworks' ontology dataset ACL (403) \u2014 it holds no dataset-level access on a project it did not provision. So parity for vault-sa's dataset-scoped grant is UNKNOWN there, not confirmed absent. Recorded as accepted so the run is not permanently red, but it is explicitly an unverified item, not a passing one.",
+      "accepted_by": "Ryan (2026-08-04, additive-only)",
+      "accepted_on": "2026-08-04",
+      "review": "Needs an identity with dataset read on airworks. Resolve when ENG-281 migrates it, or grant customer-deployer read there."
     }
   ]
 }

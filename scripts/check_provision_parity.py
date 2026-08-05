@@ -168,10 +168,19 @@ class Spec:
 # ── live state ─────────────────────────────────────────────────────────────────────
 
 def _gcloud(args: list[str], impersonate: str | None) -> str:
-    cmd = ["gcloud", *args, "--format=json"]
+    """Run gcloud, never interactively.
+
+    ⚠️ `--quiet` and a closed stdin are load-bearing, not tidiness. On redwood,
+    `gcloud secrets list` found Secret Manager disabled and asked
+    "Would you like to enable and retry (y/N)?", then waited on stdin forever — the check
+    hung instead of reporting. A gate that hangs is worse than one that fails: a red run gets
+    read, a hung run gets killed and forgotten. `--quiet` also guarantees it can never
+    ENABLE an API or mutate anything while answering a prompt on our behalf.
+    """
+    cmd = ["gcloud", *args, "--format=json", "--quiet"]
     if impersonate:
         cmd.append(f"--impersonate-service-account={impersonate}")
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
     if r.returncode != 0:
         raise RuntimeError(f"{' '.join(args)} failed: {r.stderr.strip()[:300]}")
     return r.stdout
@@ -229,21 +238,42 @@ def live_secrets(project: str, imp: str | None) -> set[str]:
 
 
 def live_secret_iam(project: str, secret: str, imp: str | None) -> set[tuple[str, str]]:
-    try:
-        pol = json.loads(_gcloud(["secrets", "get-iam-policy", secret, f"--project={project}"], imp))
-    except RuntimeError:
-        return set()
+    """Raises on failure — the caller turns that into UNVERIFIABLE. Returning an empty set here
+    would report every declared grant as missing on a secret we simply could not read."""
+    pol = json.loads(_gcloud(["secrets", "get-iam-policy", secret, f"--project={project}"], imp))
     return {(b["role"], m) for b in pol.get("bindings", []) for m in b.get("members", [])}
 
 
 # ── comparison ─────────────────────────────────────────────────────────────────────
 
+def _why(e: Exception) -> str:
+    s = str(e)
+    if "PERMISSION_DENIED" in s or "does not have permission" in s or "Access Denied" in s:
+        return "permission denied"
+    if "not enabled on project" in s:
+        return "required API not enabled on the project"
+    return s[:120]
+
+
 def compare(spec: Spec, imp: str | None) -> list[str]:
-    """Return a list of failures. Empty means the project matches the declaration."""
+    """Return a list of failures. Empty means the project matches the declaration.
+
+    ⚠️ EVERY live read is guarded, and a read that fails becomes UNVERIFIABLE rather than a
+    traceback or a silent pass. Getting this wrong once (dataset ACLs) taught the lesson;
+    applying it to only that one call site was the same mistake at a smaller scale. A crash
+    yields no verdict at all, which is worse than a red one — the run looks inconclusive and
+    gets retried rather than read.
+    """
     failures: list[str] = []
     p = spec.project
 
-    have_iam = live_project_iam(p, imp)
+    try:
+        have_iam = live_project_iam(p, imp)
+    except RuntimeError as e:
+        # Without the project policy nothing below can be judged, so stop with one clear line
+        # rather than emitting a wall of false "missing" findings.
+        return [f"UNVERIFIABLE: cannot read {p}'s IAM policy ({_why(e)}) — no parity conclusion "
+                f"is possible. Re-run with an identity that can read this project."]
     for role, member in sorted(spec.project_iam):
         if (role, member) not in have_iam:
             failures.append(f"project IAM missing: {role} -> {member}")
@@ -275,7 +305,12 @@ def compare(spec: Spec, imp: str | None) -> list[str]:
                 f"dataset-scoped on '{ds}' only — revoke the project-level binding"
             )
 
-    have_secrets = live_secrets(p, imp)
+    try:
+        have_secrets = live_secrets(p, imp)
+    except RuntimeError as e:
+        failures.append(f"UNVERIFIABLE: cannot list secrets in {p} ({_why(e)}) — the "
+                        f"{len(spec.secrets)} declared secret shell(s) and their grants are unknown, not confirmed.")
+        return failures
     for s in sorted(spec.secrets):
         if s not in have_secrets:
             failures.append(f"secret missing: {s} (the Platform SA can add versions but CANNOT create secrets)")
@@ -283,7 +318,13 @@ def compare(spec: Spec, imp: str | None) -> list[str]:
     for secret, role, member in sorted(spec.secret_iam):
         if secret not in have_secrets:
             continue  # already reported as a missing shell
-        if (role, member) not in live_secret_iam(p, secret, imp):
+        try:
+            have_sec_iam = live_secret_iam(p, secret, imp)
+        except RuntimeError as e:
+            failures.append(f"UNVERIFIABLE: cannot read {secret}'s IAM policy ({_why(e)}) — "
+                            f"parity for {role} -> {member} is unknown, not confirmed.")
+            continue
+        if (role, member) not in have_sec_iam:
             failures.append(f"secret IAM missing: {secret}: {role} -> {member}")
 
     return failures
