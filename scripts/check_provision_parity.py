@@ -182,8 +182,23 @@ def _gcloud(args: list[str], impersonate: str | None) -> str:
         cmd.append(f"--impersonate-service-account={impersonate}")
     r = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
     if r.returncode != 0:
-        raise RuntimeError(f"{' '.join(args)} failed: {r.stderr.strip()[:300]}")
+        raise RuntimeError(f"{' '.join(args)} failed: {_why_it_failed(r.stderr)}")
     return r.stdout
+
+
+def _why_it_failed(stderr: str) -> str:
+    """The ERROR line, not whatever gcloud printed first.
+
+    ⚠️ Truncating raw stderr puts gcloud's noise ahead of its diagnosis. With
+    --impersonate-service-account, gcloud always emits a WARNING about impersonation FIRST,
+    so a 300-char slice reported "cannot read <project>'s IAM policy (WARNING: This command
+    is using service account impersonation…)" and hid the actual cause — an expired token
+    needing reauth — past the cut. The failure was legible only by re-running the command by
+    hand, which is exactly the work a good error message saves.
+    """
+    lines = [ln.strip() for ln in stderr.splitlines() if ln.strip()]
+    errors = [ln for ln in lines if ln.startswith("ERROR:")]
+    return (errors[0] if errors else (lines[0] if lines else "no stderr"))[:300]
 
 
 def live_project_iam(project: str, imp: str | None) -> set[tuple[str, str]]:
