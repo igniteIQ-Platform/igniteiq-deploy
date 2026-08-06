@@ -13,8 +13,9 @@
 # read-only, and "it cannot read your data" is the sentence that gets this approved.
 #
 # Permission rationale and the verification evidence live in
-# roles/tenant_posture_auditor.yaml — including the three tested claims (secret names 200,
-# secret payload 403, data query 403) measured against a real project.
+# roles/tenant_posture_auditor.yaml — including the tested claims (secret names 200, secret
+# payload 403, data query 403) measured against a real project, and re-verified on the
+# customer's own project when Jolly granted it on 2026-08-05.
 
 resource "google_project_iam_custom_role" "tenant_posture_auditor" {
   project     = var.project_id
@@ -32,7 +33,8 @@ resource "google_project_iam_custom_role" "tenant_posture_auditor" {
     "resourcemanager.projects.getIamPolicy",
     "orgpolicy.policy.get",
     "orgpolicy.policies.list",
-    "secretmanager.secrets.list", # NAMES only — versions.access is deliberately absent
+    "secretmanager.secrets.list",         # NAMES only — versions.access is deliberately absent
+    "secretmanager.secrets.getIamPolicy", # a secret's ACCESS LIST, never its contents
     "serviceusage.services.list",
     "iam.serviceAccounts.list",
     "bigquery.datasets.get", # returns the dataset ACL, never rows

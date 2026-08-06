@@ -11,11 +11,12 @@
 #
 # WHY NOT roles/iam.securityReviewer. It is genuinely metadata-only — verified: no
 # bigquery.tables.getData, no secretmanager.versions.access — but it carries 2,515 permissions.
-# That number stalls a security review even when every one of them is harmless. Eight explicit
+# That number stalls a security review even when every one of them is harmless. Nine explicit
 # permissions can be read and approved in a single screen.
 #
-# WHAT IT CANNOT DO, verified against redwood-igniteiq-data on 2026-08-04 with this exact role
-# bound to that exact identity, all three checks in the same minute:
+# WHAT IT CANNOT DO, verified twice — against redwood-igniteiq-data on 2026-08-04, and again
+# against a real CUSTOMER project (ignite-iq / Jolly) on 2026-08-05 once they granted it, with
+# this exact role bound to that exact identity, all three checks in the same minute:
 #
 #   list secret NAMES        -> 200   (permitted, and the point)
 #   read a secret PAYLOAD    -> 403
@@ -45,6 +46,14 @@ includedPermissions:
   # Secret NAMES only. Deliberately excludes secretmanager.versions.access, which is what
   # would let it read a credential. Listing proves the four shells exist; nothing more.
   - secretmanager.secrets.list
+  # A secret's ACCESS LIST — who may read it — never its contents. Same relationship as
+  # bigquery.datasets.get below: metadata about the resource, not the resource.
+  #
+  # ADDED 2026-08-05, after granting on Jolly proved eight was not enough. The parity check
+  # returned 4 UNVERIFIABLE there because it could not confirm depot-sa holds
+  # secretAccessor on the four ServiceTitan secrets — the one thing about secrets it needs
+  # to check. Its absence was an oversight, not a deliberate exclusion.
+  - secretmanager.secrets.getIamPolicy
   # Confirm the APIs the module requires are actually enabled.
   - serviceusage.services.list
   # See which service accounts exist in-project (depot-sa and the Google defaults).
