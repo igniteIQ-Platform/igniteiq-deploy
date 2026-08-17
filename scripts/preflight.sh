@@ -10,7 +10,7 @@ if [[ ! -f terraform.tfvars ]]; then
   exit 1
 fi
 
-PROJECT_ID="$(grep -E '^\s*project_id' terraform.tfvars | sed -E 's/.*=\s*"([^"]+)".*/\1/')"
+PROJECT_ID="$(grep -E '^[[:space:]]*project_id' terraform.tfvars | sed -E 's/.*=[[:space:]]*"([^"]+)".*/\1/')"
 if [[ -z "${PROJECT_ID}" ]]; then
   echo "[preflight] could not read project_id from terraform.tfvars" >&2
   exit 1

@@ -7,8 +7,8 @@ set -euo pipefail
 # can't lead to a half-provisioned run against an org-less project.
 bash "$(dirname "$0")/preflight.sh"
 
-PROJECT_ID="$(grep -E '^\s*project_id' terraform.tfvars | sed -E 's/.*=\s*"([^"]+)".*/\1/')"
-REGION="$(grep -E '^\s*region' terraform.tfvars | sed -E 's/.*=\s*"([^"]+)".*/\1/' || echo us-central1)"
+PROJECT_ID="$(grep -E '^[[:space:]]*project_id' terraform.tfvars | sed -E 's/.*=[[:space:]]*"([^"]+)".*/\1/')"
+REGION="$(grep -E '^[[:space:]]*region' terraform.tfvars | sed -E 's/.*=[[:space:]]*"([^"]+)".*/\1/' || echo us-central1)"
 BUCKET="${PROJECT_ID}-igniteiq-tfstate"
 
 # Fresh projects don't have the Cloud Storage API enabled — turn it on first, or
