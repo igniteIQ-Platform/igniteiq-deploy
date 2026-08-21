@@ -55,10 +55,10 @@ resource "google_project_iam_member" "forge_job_user" {
 # proposed once per environment and it cannot work, for two independent reasons:
 # dbt writes forge_staging AND forge_intermediate as well as ontology, and it
 # CREATES `dbt_test__audit` + elementary's `armory_monitor`, neither of which is
-# in local.bq_datasets (both exist on redwood today — proof dbt made them). The
-# architecture doc adjudicates this explicitly and calls the width deliberate:
-# docs/architecture/tenant-iam-and-policy-matrix.html, "Target state" →
-# forge-runner → "Dataset-scoped grants cannot express that."
+# in local.bq_datasets — observed present on an existing project, which is proof
+# dbt created them. The architecture doc adjudicates this and calls the width
+# deliberate: docs/architecture/tenant-iam-and-policy-matrix.html, "Target
+# state" → forge-runner → "Dataset-scoped grants cannot express that."
 resource "google_project_iam_member" "forge_data_editor" {
   for_each = var.igniteiq_forge_sas
   project  = var.project_id
@@ -75,8 +75,8 @@ resource "google_project_iam_member" "vault_job_user" {
 
 # Vault is the opposite case and stays dataset-scoped: a query engine reads the
 # published marts and nothing else. Project-level dataViewer here is the ENG-437
-# regression — held that way on tapps/reynolds/eco, correct on jolly, which is
-# the tenant this module built.
+# regression — several older projects hold it that way; the projects this module
+# provisioned are correctly dataset-scoped.
 resource "google_bigquery_dataset_iam_member" "vault_ontology_viewer" {
   for_each   = var.igniteiq_vault_sas
   project    = var.project_id
