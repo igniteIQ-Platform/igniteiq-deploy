@@ -98,6 +98,30 @@ def _var_defaults(src: str) -> dict[str, str]:
     return out
 
 
+def _var_list_defaults(src: str) -> dict[str, list[str]]:
+    """variable "x" { type = set(string) ... default = ["a", "b"] } -> {x: ["a", "b"]}.
+
+    Separate from _var_defaults, which reads only string defaults. A for_each'd resource
+    resolves to N members rather than one, and a string-only reader returns NONE of them —
+    so the derived spec would quietly shrink instead of failing. That is the exact shape of
+    [[a_guard_with_a_hand_list_guards_nothing]], so _expand raises rather than returning [].
+    """
+    out: dict[str, list[str]] = {}
+    for m in re.finditer(r'variable\s+"([^"]+)"\s*\{', src):
+        i, depth = m.end(), 1
+        while i < len(src) and depth:
+            if src[i] == "{":
+                depth += 1
+            elif src[i] == "}":
+                depth -= 1
+            i += 1
+        body = src[m.end() : i - 1]
+        d = re.search(r'default\s*=\s*\[(.*?)\]', body, re.S)
+        if d:
+            out[m.group(1)] = re.findall(r'"([^"]+)"', d.group(1))
+    return out
+
+
 def _list_local(src: str, name: str) -> list[str]:
     m = re.search(rf'{re.escape(name)}\s*=\s*\[(.*?)\]', src, re.S)
     if not m:
@@ -116,6 +140,7 @@ class Spec:
 
         self.project, self.slug = project, slug
         self.vars = _var_defaults(variables)
+        self.var_lists = _var_list_defaults(variables)
         self.st_fields = _list_local(locals_, "st_secret_fields")
         self.sa_emails = {
             n: f"{_attr(b, 'account_id').strip(chr(34))}@{project}.iam.gserviceaccount.com"
@@ -126,14 +151,17 @@ class Spec:
         for _, body in _hcl_bodies(iam, "google_project_iam_member"):
             role, member = _attr(body, "role"), _attr(body, "member")
             if role and member:
-                self.project_iam.add((self._resolve(role), self._resolve(member)))
+                for one in self._expand(body, member):
+                    self.project_iam.add((self._resolve(role), one))
 
         self.dataset_iam: set[tuple[str, str, str]] = set()
         for _, body in _hcl_bodies(iam, "google_bigquery_dataset_iam_member"):
             ds, role, member = _attr(body, "dataset_id"), _attr(body, "role"), _attr(body, "member")
             if ds and role and member:
                 m = re.search(r'datasets\["([^"]+)"\]', ds)
-                self.dataset_iam.add(((m.group(1) if m else self._resolve(ds)), self._resolve(role), self._resolve(member)))
+                name = m.group(1) if m else self._resolve(ds)
+                for one in self._expand(body, member):
+                    self.dataset_iam.add((name, self._resolve(role), one))
 
         self.secrets: set[str] = set()
         self.secret_iam: set[tuple[str, str, str]] = set()
@@ -154,6 +182,26 @@ class Spec:
             targets = sorted(s for s in self.secrets if "-servicetitan-" in s) if "each.value" in (_attr(body, "secret_id") or "") else sorted(self.secrets)
             for t in targets:
                 self.secret_iam.add((t, self._resolve(role), self._resolve(member)))
+
+    def _expand(self, body: str, raw: str) -> list[str]:
+        """One member, or N of them when the resource is for_each'd over a variable set.
+
+        Raises on a for_each whose variable it cannot read. Returning [] would drop every
+        grant that resource declares and still print "self-test PASS" — a checker reporting
+        parity on expectations it silently failed to derive is worse than no checker.
+        """
+        fe = _attr(body, "for_each")
+        if not (fe and "each.value" in raw):
+            return [self._resolve(raw)]
+        m = re.search(r"var\.([A-Za-z0-9_]+)", fe)
+        vals = self.var_lists.get(m.group(1)) if m else None
+        if not vals:
+            raise RuntimeError(
+                f"for_each over `{fe.strip()}` could not be resolved to a list of values, so "
+                f"the grants declared by this resource would be silently omitted from the spec. "
+                f"Teach _var_list_defaults about it rather than letting the check under-derive."
+            )
+        return [self._resolve(raw.replace("${each.value}", v)) for v in vals]
 
     def _resolve(self, raw: str) -> str:
         v = raw.strip().strip('"')
@@ -367,7 +415,21 @@ def self_test() -> int:
         problems.append("did not derive depot-sa secretAccessor on the ST secrets (gap 1)")
     if not any(ds == "ontology" and "dataViewer" in r for ds, r, _ in spec.dataset_iam):
         problems.append("did not derive the dataset-scoped ontology dataViewer grant")
-    if "${" in json.dumps([sorted(spec.project_iam), sorted(spec.secrets)]):
+
+    # Per-environment expansion: one grant per Vault/Forge SA, not one per resource block.
+    # Asserted as a COUNT against the variable, so adding a fourth environment cannot leave
+    # this check passing on three. The count is the whole point — the string-typed version of
+    # these variables derived exactly one member and looked healthy doing it.
+    want_vault = len(spec.var_lists.get("igniteiq_vault_sas", []))
+    got_vault = sum(1 for ds, r, _ in spec.dataset_iam if ds == "ontology" and "dataViewer" in r)
+    if want_vault < 2 or got_vault != want_vault:
+        problems.append(f"ontology dataViewer derived for {got_vault} vault SA(s), expected {want_vault}")
+    want_forge = len(spec.var_lists.get("igniteiq_forge_sas", []))
+    got_forge = sum(1 for r, m in spec.project_iam if "dataEditor" in r and "forge-runner" in m)
+    if want_forge < 2 or got_forge != want_forge:
+        problems.append(f"forge dataEditor derived for {got_forge} SA(s), expected {want_forge}")
+
+    if "${" in json.dumps([sorted(spec.project_iam), sorted(spec.secrets), sorted(spec.dataset_iam)]):
         problems.append("unresolved terraform interpolation left in the derived spec")
 
     # Negative test: drop one expectation and confirm the comparison would flag it.

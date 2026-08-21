@@ -50,16 +50,32 @@ variable "igniteiq_platform_sa" {
   description = "IgniteIQ Platform runtime SA. Granted WRITE-ONLY secret access (secretVersionAdder) so Studio can vault ServiceTitan credentials into this project. Cannot read secrets back."
 }
 
-variable "igniteiq_forge_sa" {
-  type        = string
-  default     = "forge-runner@igniteiq-core.iam.gserviceaccount.com"
-  description = "IgniteIQ Forge (transform) SA. Granted BigQuery transform access on this project."
+# ⚠️ SETS, not strings. IgniteIQ runs one Forge and one Vault per ENVIRONMENT
+# (dev/qa/prod) and each is a distinct service account. Modelling either as a
+# single string is why every environment reaches a tenant as a hand-run
+# `gcloud add-iam-policy-binding` — three of them on redwood on 2026-08-21
+# alone (ENG-590), each blocked on the one human who owns that project. For the
+# five real customers in ENG-309 the project owner is the CUSTOMER, so the same
+# shape turns each prod cutover into a customer email. The environment set
+# belongs in the declaration: then adding prod is a value change the customer's
+# own `terraform apply` carries, not a per-tenant ask.
+variable "igniteiq_forge_sas" {
+  type = set(string)
+  default = [
+    "forge-runner@igniteiq-core.iam.gserviceaccount.com",
+    "forge-runner@igniteiq-prod.iam.gserviceaccount.com",
+  ]
+  description = "IgniteIQ Forge (transform) SAs, one per environment. Granted BigQuery transform access on this project."
 }
 
-variable "igniteiq_vault_sa" {
-  type        = string
-  default     = "vault-sa@igniteiq-dev.iam.gserviceaccount.com"
-  description = "IgniteIQ Vault (query engine) SA. Granted read-only BigQuery access to the ontology dataset."
+variable "igniteiq_vault_sas" {
+  type = set(string)
+  default = [
+    "vault-sa@igniteiq-dev.iam.gserviceaccount.com",
+    "vault-sa@igniteiq-qa.iam.gserviceaccount.com",
+    "vault-sa@igniteiq-prod.iam.gserviceaccount.com",
+  ]
+  description = "IgniteIQ Vault (query engine) SAs, one per environment. Granted read-only BigQuery access to the ontology dataset."
 }
 
 variable "igniteiq_publisher_sa" {

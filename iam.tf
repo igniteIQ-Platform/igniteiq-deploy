@@ -38,9 +38,10 @@ resource "google_service_account_iam_member" "depot_wi" {
 # IgniteIQ identities in the project (plus the write-only secret path below).
 
 resource "google_project_iam_member" "forge_job_user" {
-  project = var.project_id
-  role    = "roles/bigquery.jobUser"
-  member  = "serviceAccount:${var.igniteiq_forge_sa}"
+  for_each = var.igniteiq_forge_sas
+  project  = var.project_id
+  role     = "roles/bigquery.jobUser"
+  member   = "serviceAccount:${each.value}"
 }
 
 # Project-level dataEditor (matches the established tenants, e.g. tapps-data).
@@ -49,23 +50,65 @@ resource "google_project_iam_member" "forge_job_user" {
 # bigquery.datasets.create. Dataset-scoped grants can't do that, so the forge
 # run failed on the first customer with "does not have datasets.create". This
 # covers reading depot_raw + writing forge_*/ontology + creating what dbt needs.
+#
+# 🔴 DO NOT narrow this to a dataset-scoped grant on `ontology`. It has been
+# proposed once per environment and it cannot work, for two independent reasons:
+# dbt writes forge_staging AND forge_intermediate as well as ontology, and it
+# CREATES `dbt_test__audit` + elementary's `armory_monitor`, neither of which is
+# in local.bq_datasets (both exist on redwood today — proof dbt made them). The
+# architecture doc adjudicates this explicitly and calls the width deliberate:
+# docs/architecture/tenant-iam-and-policy-matrix.html, "Target state" →
+# forge-runner → "Dataset-scoped grants cannot express that."
 resource "google_project_iam_member" "forge_data_editor" {
-  project = var.project_id
-  role    = "roles/bigquery.dataEditor"
-  member  = "serviceAccount:${var.igniteiq_forge_sa}"
+  for_each = var.igniteiq_forge_sas
+  project  = var.project_id
+  role     = "roles/bigquery.dataEditor"
+  member   = "serviceAccount:${each.value}"
 }
 
 resource "google_project_iam_member" "vault_job_user" {
-  project = var.project_id
-  role    = "roles/bigquery.jobUser"
-  member  = "serviceAccount:${var.igniteiq_vault_sa}"
+  for_each = var.igniteiq_vault_sas
+  project  = var.project_id
+  role     = "roles/bigquery.jobUser"
+  member   = "serviceAccount:${each.value}"
 }
 
+# Vault is the opposite case and stays dataset-scoped: a query engine reads the
+# published marts and nothing else. Project-level dataViewer here is the ENG-437
+# regression — held that way on tapps/reynolds/eco, correct on jolly, which is
+# the tenant this module built.
 resource "google_bigquery_dataset_iam_member" "vault_ontology_viewer" {
+  for_each   = var.igniteiq_vault_sas
   project    = var.project_id
   dataset_id = google_bigquery_dataset.datasets["ontology"].dataset_id
   role       = "roles/bigquery.dataViewer"
-  member     = "serviceAccount:${var.igniteiq_vault_sa}"
+  member     = "serviceAccount:${each.value}"
+}
+
+# ── address moves: single resource -> for_each instance ──────────────────────
+# Each live tenant's state (in the CUSTOMER's own GCS bucket) holds the
+# un-indexed addresses. Without these, the next `terraform apply` DESTROYS and
+# recreates each binding — a momentary revoke on a live Vault and a live Forge,
+# on a project whose dashboards are customer-facing. `moved` re-keys in state
+# with no API call. Safe to delete once every tenant has applied once.
+moved {
+  from = google_project_iam_member.forge_job_user
+  to   = google_project_iam_member.forge_job_user["forge-runner@igniteiq-core.iam.gserviceaccount.com"]
+}
+
+moved {
+  from = google_project_iam_member.forge_data_editor
+  to   = google_project_iam_member.forge_data_editor["forge-runner@igniteiq-core.iam.gserviceaccount.com"]
+}
+
+moved {
+  from = google_project_iam_member.vault_job_user
+  to   = google_project_iam_member.vault_job_user["vault-sa@igniteiq-dev.iam.gserviceaccount.com"]
+}
+
+moved {
+  from = google_bigquery_dataset_iam_member.vault_ontology_viewer
+  to   = google_bigquery_dataset_iam_member.vault_ontology_viewer["vault-sa@igniteiq-dev.iam.gserviceaccount.com"]
 }
 
 # ── Write-only secret path (Studio credential vaulting) ──────────────────────
