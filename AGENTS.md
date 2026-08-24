@@ -10,7 +10,9 @@ Design: `igniteiq-docs/docs/engineering/self-serve-onboarding.md`; runbook it tr
 
 ## ⚠️ Read first: three things that make this repo unlike the others
 
-**1. This repo is PUBLIC** — world-readable and permanent. No customer identifiers, project ids, SA emails, internal hostnames or quoted internal decisions. Check every commit against that; `parity-exceptions.json` already carries more than it should (see Housekeeping).
+**1. This repo is PUBLIC — deliberately, and it must stay that way.** Org policy is that no IgniteIQ repo is public; this is the one exception, because the onboarding wizard builds a Cloud Shell URL with `cloudshell_git_repo` and the **customer's** shell clones this repo **as the customer**, who has no access to our org. Making it private breaks the "Deploy to Google Cloud" button (Darren, 2026-08-21). Do not "fix" the visibility.
+
+Consequence: everything committed here is world-readable and permanent. No customer identifiers, project ids, SA emails, internal hostnames or quoted internal decisions. Check every commit against that; `parity-exceptions.json` already carries more than it should — ENG-589, and see Housekeeping.
 
 **2. The default branch is `master`, not `main`.** Anything assuming `main` silently targets nothing here.
 
