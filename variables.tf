@@ -20,9 +20,23 @@ variable "slug" {
   }
 }
 
+# VESTIGIAL — declared for compatibility, consumed by nothing in this module.
+#
+# 🔴 It is NOT known at apply time and must not be presented as a required input.
+# The ServiceTitan tenant id is a required ServiceTitan *credential*, so it only
+# becomes known when the customer connects ServiceTitan in Studio — which happens
+# AFTER this deploy completes. The platform captures it at that point onto the
+# org's default division, and that division row is what the query engine's tenant
+# registry and the transform layer's `servicetitan_tenant_id` var actually read.
+#
+# Leaving this variable required meant a greenfield deploy appeared blocked on an
+# input that cannot exist yet. Defaulted to empty so it never gates an apply;
+# grep shows no other reference in this module, so a real value changes nothing.
+# Safe to delete outright once no caller passes it.
 variable "servicetitan_tenant_id" {
   type        = string
-  description = "The customer's ServiceTitan tenant ID (numeric)."
+  default     = ""
+  description = "Deprecated/unused. The ServiceTitan tenant id is captured when the customer connects ServiceTitan in Studio, after this deploy. Do not treat as a prerequisite."
 }
 
 variable "igniteiq_org_id" {
