@@ -3,9 +3,12 @@
 # at it. Must run before `terraform init` (Cloud Shell state is ephemeral).
 set -euo pipefail
 
-# Enforce the pre-flight checks (org + billing) here too, so a skipped Step 2
-# can't lead to a half-provisioned run against an org-less project.
-bash "$(dirname "$0")/preflight.sh"
+# Enforce the pre-flight checks here too, so a skipped Step 2 can't lead to a
+# half-provisioned run. IGNITEIQ_DEPLOY_MODE is inherited by the child, and is
+# named explicitly so it is obvious that this gate honours the same two modes:
+# white-glove skips only the organization check (see preflight.sh for why).
+IGNITEIQ_DEPLOY_MODE="${IGNITEIQ_DEPLOY_MODE:-self-serve}" \
+  bash "$(dirname "$0")/preflight.sh"
 
 PROJECT_ID="$(grep -E '^[[:space:]]*project_id' terraform.tfvars | sed -E 's/.*=[[:space:]]*"([^"]+)".*/\1/')"
 REGION="$(grep -E '^[[:space:]]*region' terraform.tfvars | sed -E 's/.*=[[:space:]]*"([^"]+)".*/\1/' || echo us-central1)"

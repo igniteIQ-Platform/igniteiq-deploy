@@ -60,5 +60,26 @@ Manual (from a clone with `terraform.tfvars` in place):
 bash scripts/bootstrap_state.sh    # create the customer-owned state bucket (D3)
 bash scripts/ensure_terraform.sh   # install Terraform if Cloud Shell lacks it
 terraform init && terraform apply  # ~15–20 min
+
+### Deploy mode — `IGNITEIQ_DEPLOY_MODE`
+
+`preflight.sh` (and `bootstrap_state.sh`, which calls it) takes
+`IGNITEIQ_DEPLOY_MODE=self-serve` (default) or `white-glove`.
+
+The **organization** check is self-serve-only, because what it really tests is the
+**caller's** identity, not the project's parent: the failure it prevents is
+`Regional Access Boundary ... 'Gaia id not found for email <user>@gmail.com'`. When the
+customer runs the deploy as themselves, a personal-Gmail caller cannot perform admin
+writes. When an IgniteIQ operator runs it, the caller is a service account in an
+org-backed project whose Gaia id resolves, so an org-less target project deploys fine.
+
+The **billing** and **domain-restricted-sharing** checks apply to both modes and are
+never skipped.
+
+```bash
+IGNITEIQ_DEPLOY_MODE=white-glove bash scripts/preflight.sh
+IGNITEIQ_DEPLOY_MODE=white-glove bash scripts/bootstrap_state.sh
+```
+
 # → connector-push + infra-ready callbacks fire → Studio detects → Connect ServiceTitan
 ```
