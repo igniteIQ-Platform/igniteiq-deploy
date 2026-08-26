@@ -54,7 +54,10 @@ variable "provisioning_token" {
 
 variable "callback_base_url" {
   type        = string
-  default     = "https://api.igniteiq.com"
+  # The wizard supplies the real value per tenant; this default is the public entry point
+  # a customer would use. Paired with ONBOARDING_CALLBACK_BASE in igniteiq-platform,
+  # which IS tracked there as a real tier-scoped violation.
+  default     = "https://api.igniteiq.com" # bare-host-ok: customer-facing public endpoint
   description = "IgniteIQ Platform base URL for the connector-push and infra-ready callbacks."
 }
 

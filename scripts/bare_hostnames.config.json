@@ -1,0 +1,5 @@
+{
+  "_": "Per-repo config for scripts/check_bare_hostnames.py, which is byte-identical across repos. This repo runs in the CUSTOMER's environment, not in a tier, so its igniteiq.com hostnames are the product's public entry point. The two legitimate fallbacks carry inline bare-host-ok markers rather than file-level entries — a fallback is never file-allowlistable, by design.",
+  "allow": {},
+  "known": {}
+}

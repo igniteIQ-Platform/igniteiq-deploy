@@ -1,0 +1,37 @@
+# This repo runs in the CUSTOMER's environment, so most igniteiq.com hostnames here are
+# correct: they are the product's public entry point, not internal tier config. The rule
+# is still worth running — it is the difference between "these are deliberate" and
+# "nobody has looked".
+#
+# No branch protection on this repo, and this does not add any: the job reports, it does
+# not gate.
+name: Checks
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  bare-hostnames:
+    name: Bare Hostnames
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Prove the rule still fires before trusting a clean run (ADR 0001).
+      - name: Self-test the bare-hostname rule
+        run: python3 scripts/check_bare_hostnames.py --self-test
+
+      - name: Bare hostnames
+        run: python3 scripts/check_bare_hostnames.py
