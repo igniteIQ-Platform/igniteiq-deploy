@@ -4,3 +4,7 @@
 .terraform.lock.hcl
 terraform.tfvars
 crash.log
+
+# Python bytecode — a build artifact, and this repo is PUBLIC
+__pycache__/
+*.pyc
