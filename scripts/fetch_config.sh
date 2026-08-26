@@ -16,7 +16,9 @@
 set -euo pipefail
 
 CODE="${1:-}"
-BASE="${IGNITEIQ_API:-https://api.igniteiq.com}"
+# Runs in the CUSTOMER's Cloud Shell, not in a tier, so the public entry point is the
+# right default here; IGNITEIQ_API overrides it for internal testing.
+BASE="${IGNITEIQ_API:-https://api.igniteiq.com}"  # bare-host-ok: customer-facing public endpoint
 
 if [[ -z "${CODE}" ]]; then
   echo "usage: bash scripts/fetch_config.sh <one-time-code from the Studio wizard>" >&2
