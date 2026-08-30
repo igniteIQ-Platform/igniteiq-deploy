@@ -53,7 +53,7 @@ variable "provisioning_token" {
 # ── IgniteIQ endpoints + identities (wizard supplies; sane defaults) ─────────
 
 variable "callback_base_url" {
-  type        = string
+  type = string
   # The wizard supplies the real value per tenant; this default is the public entry point
   # a customer would use. Paired with ONBOARDING_CALLBACK_BASE in igniteiq-platform,
   # which IS tracked there as a real tier-scoped violation.

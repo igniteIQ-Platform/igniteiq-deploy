@@ -46,7 +46,7 @@ All three are encoded in `depends_on` or script sequence, and surfaced in the EN
 
 - **`backend.tf` is deliberately commented out.** State belongs in the customer's project (D3) and the bucket must exist before `terraform init`, so `bootstrap_state.sh` **rewrites the file**. Left commented so the module validates and inits locally in development. Not an oversight — do not "fix" it, and do not hand-edit expecting it to survive.
 - **`\s` is a GNU extension, and Cloud Shell is not your laptop.** `grep -E '^\s*project_id'` matched nothing there, so `preflight.sh` read an empty project id and reported **"no Organization"** — a confident, wrong diagnosis of the very blocker it exists to catch. Fixed in `5400c32` via `[[:space:]]`. Every script runs in the customer's shell: assume POSIX, prefer character classes.
-- **There is no CI here.** Nothing stands between an edit and a customer running it; `terraform validate` and the parity check are hand-run.
+- ~~**There is no CI here.**~~ Fixed 2026-08-30: `checks.yml` now runs `terraform fmt -check` + `validate` (with `-backend=false`, which is required — see below), `shellcheck -S error` over `scripts/`, the parity-check self-test, and the bare-hostname rule. **It reports; it does not gate** — this repo still has no branch protection, so read the run rather than trusting the merge button.
 
 ## The parity check is the model to copy
 
