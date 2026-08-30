@@ -35,3 +35,88 @@ jobs:
 
       - name: Bare hostnames
         run: python3 scripts/check_bare_hostnames.py
+
+  # ── THE TERRAFORM CUSTOMERS ACTUALLY RUN ────────────────────────────────────────────
+  #
+  # AGENTS.md has said "There is no CI here. Nothing stands between an edit and a customer
+  # running it; `terraform validate` and the parity check are hand-run." Hand-run means run
+  # when someone remembers, and this module executes in a customer's own GCP project, as
+  # the customer, where we cannot reproduce a failure or roll it back.
+  #
+  # ⚠️ `-backend=false` is REQUIRED, not a shortcut. backend.tf is deliberately commented
+  # out because state belongs in the customer's project and the bucket must exist before
+  # `terraform init` — bootstrap_state.sh rewrites the file at run time. Initialising a
+  # backend here would either fail or, worse, reach for state that is not ours.
+  terraform:
+    name: Terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      # Formatting is not cosmetic in a repo customers read: this is the first Terraform
+      # many of them will have seen, and it is our shop window.
+      - name: Formatting
+        run: terraform fmt -check -recursive -diff
+
+      - name: Init (no backend — see the comment above)
+        run: terraform init -backend=false -input=false
+
+      - name: Validate
+        run: terraform validate
+
+  # ── THE SCRIPTS RUN IN SOMEONE ELSE'S SHELL ─────────────────────────────────────────
+  #
+  # Cloud Shell is not your laptop. `preflight.sh` once used `grep -E '^\s*project_id'` —
+  # `\s` is a GNU extension, it matched nothing there, so the script read an empty project
+  # id and confidently reported "no Organization": a wrong diagnosis of the very blocker it
+  # exists to catch. shellcheck flags that class directly.
+  #
+  # Errors only, deliberately. Style warnings across nine existing scripts would produce a
+  # wall nobody reads, and a check people learn to ignore is worse than no check. Tighten
+  # to -S warning once the error level is clean and stays clean.
+  scripts:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+
+      - name: Shellcheck (errors)
+        run: |
+          set -uo pipefail
+          FAIL=0
+          for f in scripts/*.sh; do
+            echo "── $f"
+            shellcheck -S error -f gcc "$f" || FAIL=1
+          done
+          if [ "$FAIL" != "0" ]; then
+            echo "::error::shellcheck found errors in scripts a CUSTOMER runs in their own shell."
+            exit 1
+          fi
+          echo "No shellcheck errors."
+
+  # ── THE GUARD THAT GUARDS THE PROVISIONING ──────────────────────────────────────────
+  #
+  # check_provision_parity.py answers "does this project actually look provisioned?" and
+  # derives its expectations from the .tf files rather than a hand list, so it covers new
+  # resources automatically. Only the SELF-TEST runs here — the real check needs a customer
+  # project we deliberately have no CI credentials for.
+  #
+  # Self-test only is still worth gating: a parity check that has lost the ability to fail
+  # would certify every future tenant as correct (ADR 0001).
+  parity:
+    name: Parity check self-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Prove the parity check can fail
+        run: python3 scripts/check_provision_parity.py --self-test
