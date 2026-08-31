@@ -1,7 +1,11 @@
 {
   "contract": "depot-artifacts",
   "version": 1,
-  "byte_identical_in": ["igniteiq-platform", "igniteiq-depot", "igniteiq-deploy"],
+  "byte_identical_in": [
+    "igniteiq-platform",
+    "igniteiq-depot",
+    "igniteiq-deploy"
+  ],
   "why": [
     "Ingestion for a customer is three OCI artifacts that cross three repositories and two",
     "GCP projects. igniteiq-depot BUILDS and PUBLISHES them; igniteiq-platform COPIES them",
@@ -17,9 +21,15 @@
     "connector version). Those are read from their source of truth by the depot-side check.",
     "What it owns is the NAMES, because a name is what silently stops matching."
   ],
-
   "source": {
-    "_": "IgniteIQ's own registries. Platform copies FROM here.",
+    "_": [
+      "IgniteIQ's own registries. This is the BUILD registry and Platform copies FROM here.",
+      "",
+      "⚠️ This is NOT a vote for the central distribution model. Decision 0002 proposes",
+      "DISTRIBUTED, and distributed does not mean N builds — it is one build to central, then",
+      "connector-release-sync copies that digest into each tenant registry. So these",
+      "coordinates are unchanged by 0002: they are where the single build lands, before fan-out."
+    ],
     "host": "us-central1-docker.pkg.dev",
     "location": "us-central1",
     "project": "igniteiq-dev",
@@ -29,20 +39,23 @@
     "relay_image": "depot-relay",
     "relay_tag": "latest"
   },
-
   "target": {
     "_": [
-      "The customer's own project. Note the ASYMMETRY, which is the least obvious thing here:",
-      "on our side the image and the chart live in TWO repositories (depot-connectors and",
-      "depot-charts); in the customer's project they ride ONE (depot-connectors). So the",
-      "connector-push callback is a two-source-to-one-target copy, and 'the chart repo' means",
-      "different things on either side of it."
+      "The customer's own project. Under decision 0002 (distributed) every tenant reads from",
+      "here; airworks, caddies and jolly already do, and eco, reynolds and tapps need an",
+      "ENG-285 rebuild to join them. These names are therefore the TARGET-state names, not a",
+      "snapshot of today.",
+      "",
+      "Note the ASYMMETRY, which is the least obvious thing here: on our side the image and the",
+      "chart live in TWO repositories (depot-connectors and depot-charts); in the customer's",
+      "project they ride ONE (depot-connectors). So the connector-push callback is a",
+      "two-source-to-one-target copy, and 'the chart repo' means different things on either",
+      "side of it."
     ],
     "repo": "depot-connectors",
     "connector_image_name": "servicetitan",
     "chart_name": "depot-ingest"
   },
-
   "connector": {
     "_": [
       "The manifest slug and the IMAGE NAME are deliberately different and both are correct.",
@@ -57,12 +70,10 @@
     "required": true,
     "scope": "organization"
   },
-
   "chart": {
     "name": "depot-ingest",
     "chart_yaml_path": "charts/depot-ingest/Chart.yaml"
   },
-
   "known_exceptions": [
     {
       "tenant": "tapps",
@@ -79,9 +90,30 @@
         "because that job copies into CUSTOMER projects, and this repo is one of ours.",
         "",
         "Tapps is the FORGE_TEMPLATE_JOB tenant, so a release missed here propagates to every",
-        "new customer. Recorded as an exception rather than cleaned up because the cleanup is",
-        "a re-registration. Durable fix = ENG-285."
+        "new customer.",
+        "",
+        "🔑 THIS ENTRY IS TEMPORARY AND HAS AN OWNER. Decision 0002 migrates tapps to its own",
+        "registry via an ENG-285 source+connection rebuild carrying cursor state. WHEN THAT",
+        "LANDS, DELETE THIS ENTRY from all three copies of this contract and delete the",
+        "'tapps exception' assertion in igniteiq-platform's depotArtifacts.contract.test.ts.",
+        "Until then the assertion is what keeps the hand-mirroring someone's job."
       ]
     }
-  ]
+  ],
+  "decision_refs": {
+    "_": [
+      "This contract owns NAMES and is deliberately silent on the distribution MODEL.",
+      "Decision 0002 chooses the model; nothing in this file is changed by that choice",
+      "except the tapps exception, which 0002 removes."
+    ],
+    "0002": "igniteiq-docs/decisions/0002-connector-distribution-model.md — distributed",
+    "not_covered": [
+      "P1 of 0002 — monitoring that the publish path WORKS. This checks that the names",
+      "agree, not that connector-release-sync can reach a tenant registry. That path was",
+      "silently dead in prod for days after the ENG-309 cutover, and distributed makes it",
+      "load-bearing for all six tenants rather than three. A name check would not have",
+      "caught it and does not now.",
+      "P2 of 0002 — version drift across tenants. This file owns names, not versions."
+    ]
+  }
 }
