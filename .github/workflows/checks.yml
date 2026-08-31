@@ -120,3 +120,30 @@ jobs:
           python-version: "3.12"
       - name: Prove the parity check can fail
         run: python3 scripts/check_provision_parity.py --self-test
+
+  # ── THE NAMES THIS MODULE EXPECTS TO ALREADY EXIST ──────────────────────────────────
+  #
+  # This Terraform does not create the connector image or the ingestion chart. It expects
+  # them to ALREADY BE in the customer's own Artifact Registry, under exact names, put there
+  # by igniteiq-platform's connector-push callback from artifacts igniteiq-depot published.
+  #
+  # 🔴 THIS IS THE END OF THE CHAIN WHERE A MISMATCH COSTS MOST. A rename in either of the
+  # other two repos passes their build, their review and their plan, and fails HERE — during
+  # a customer's onboarding, in a project we cannot reproduce or roll back, as an apply
+  # referencing an image that is not there.
+  artifact-contract:
+    name: Artifact contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Prove the rule still fires before trusting a clean run (ADR 0001).
+      - name: Self-test the contract rule
+        run: python3 scripts/check_artifact_contract.py --self-test
+
+      - name: This module expects what the contract says
+        run: python3 scripts/check_artifact_contract.py
+
