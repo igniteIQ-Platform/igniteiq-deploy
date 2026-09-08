@@ -67,6 +67,15 @@ ingest:
     name: "${K8S_SA}"
   postgresql:
     enabled: false
+  # 🔴 ENG-710. The subchart default is 500Mi (GKE floors it to 1Gi) and the runtime NEVER prunes
+  # this store, so it fills monotonically. When it does, the sidecar cannot write workload output
+  # and pods end Failed AFTER replication has already succeeded — the sync is fine and the pod is
+  # not, which reads as an engine fault and is not one. Days get lost to that. Size it at build.
+  # The key is minio.storage.volumeClaimValue; the chart has no values schema, so a wrong key is
+  # accepted silently and changes nothing. Verify with `helm template` before trusting a change.
+  minio:
+    storage:
+      volumeClaimValue: 20Gi
 YAML
 
 log "installing Depot ingestion runtime (auth off)"
@@ -174,8 +183,18 @@ log "internal LB ${ILB_IP}"
 
 # ── Deploy the relay (Cloud Run) ─────────────────────────────────────────────
 RELAY_SECRET="$(gcloud secrets versions access latest --secret="${RELAY_SECRET_NAME}" --project="${PROJECT_ID}")"
+# 🔴 --service-account is LOAD-BEARING; do not drop it. Without it Cloud Run falls back to the
+# project's DEFAULT COMPUTE service account, which carries roles/editor — and roles/editor does
+# NOT include secretmanager.versions.access. Measured, not assumed: on that identity the relay's
+# credential-read endpoint returns "no complete credential set" rather than an access error, so
+# the failure reads as missing data instead of a missing permission (ENG-739).
+#
+# ${DEPOT_SA} is the identity secrets.tf grants secretAccessor on the ServiceTitan secret shells,
+# and it is the only identity meant to read them. Running as it needs no additional grant. The
+# deploying principal does need iam.serviceAccountUser to actAs it — see AGENTS.md.
 gcloud run deploy depot-relay --project="${PROJECT_ID}" --region="${REGION}" \
   --image="${REGION}-docker.pkg.dev/${PROJECT_ID}/depot-connectors/depot-relay:latest" \
+  --service-account="${DEPOT_SA}" \
   --set-env-vars="DEPOT_INTERNAL_URL=http://${ILB_IP}:8001,RELAY_SECRET=${RELAY_SECRET}" \
   --allow-unauthenticated --no-cpu-throttling --min-instances=1 \
   --network=default --subnet=default --vpc-egress=all-traffic --quiet >/dev/null
