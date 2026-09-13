@@ -8,3 +8,25 @@ crash.log
 # Python bytecode — a build artifact, and this repo is PUBLIC
 __pycache__/
 *.pyc
+
+# ── Credentials (ENG-765 / finding VM-05) ───────────────────────────────────────────
+# The Terraform-shaped secrets above (*.tfstate, terraform.tfvars) were already covered.
+# These are the ones a CUSTOMER is likely to leave in their own clone: this repo is run
+# by them, in their GCP project, and the onboarding path hands them a service-account key.
+# A customer committing that to a fork is not hypothetical, and this repo is world-readable
+# so there is no quiet cleanup afterwards.
+#
+# ⚠️ `.env*` does NOT match `something.env.yaml`. Both shapes are listed on purpose —
+# that exact gap published a live Firebase Admin key out of igniteiq-platform.
+.env
+.env.*
+*.env
+*.env.yaml
+*.env.yml
+*.key
+*.pem
+*.p12
+service-account*.json
+*-key.json
+*.auto.tfvars
+*.auto.tfvars.json
