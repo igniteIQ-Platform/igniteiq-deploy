@@ -30,3 +30,8 @@ service-account*.json
 *-key.json
 *.auto.tfvars
 *.auto.tfvars.json
+
+# Agent session state and per-session worktrees. Worktrees live INSIDE the repo at
+# .claude/worktrees/<name>, so without this a `git add -A` in the shared checkout tries to
+# commit an embedded git repository (2026-08-27, 2026-08-31).
+.claude/
