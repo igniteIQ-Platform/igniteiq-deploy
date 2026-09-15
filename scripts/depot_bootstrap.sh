@@ -76,6 +76,16 @@ ingest:
   minio:
     storage:
       volumeClaimValue: 20Gi
+    # 🔴 2026-09-15 (Air-Temp build): docker.io no longer serves the subchart's pinned tag
+    # (`minio/minio:RELEASE.2023-11-20T22-40-07Z` → 404), so a fresh cluster sits in
+    # ImagePullBackOff and `helm --wait` times out. quay.io still serves the SAME release —
+    # digest sha256:b833a169… on both, verified against caddies' running image — so this is a
+    # source change, not a version change. Every earlier tenant runs the docker.io tag from node
+    # cache and will hit this on its next node rotation. Key verified by `helm template` with a
+    # wrong-key negative control (the chart has no values schema).
+    image:
+      repository: quay.io/minio/minio
+      tag: RELEASE.2023-11-20T22-40-07Z
 YAML
 
 log "installing Depot ingestion runtime (auth off)"
