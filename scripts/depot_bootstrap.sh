@@ -76,17 +76,39 @@ ingest:
   minio:
     storage:
       volumeClaimValue: 20Gi
-    # 🔴 2026-09-15 (Air-Temp build): docker.io no longer serves the subchart's pinned tag
-    # (`minio/minio:RELEASE.2023-11-20T22-40-07Z` → 404), so a fresh cluster sits in
-    # ImagePullBackOff and `helm --wait` times out. quay.io still serves the SAME release —
-    # digest sha256:b833a169… on both, verified against caddies' running image — so this is a
-    # source change, not a version change. Every earlier tenant runs the docker.io tag from node
-    # cache and will hit this on its next node rotation. Key verified by `helm template` with a
-    # wrong-key negative control (the chart has no values schema).
+    # 🔴 ENG-828. MinIO ended free distribution of this image. docker.io dropped the tag
+    # 2026-09-15 and quay.io followed by 2026-10-01, so BOTH public sources now 401 and there
+    # is no third one. A fresh cluster pointed at either sits in ImagePullBackOff and
+    # `helm --wait` times out; two live tenants (tapps, reynolds) failed exactly that way on a
+    # node rotation before being repaired 2026-10-02.
+    #
+    # We now pull it from THIS project's depot-connectors repo, the way the chart and the
+    # connector already are (see the registry login above). The image wraps MinIO's own
+    # official release binary, unmodified — sha256 98d17b86c4f5485c…, identical to what every
+    # tenant was already running — built with a checksum gate so a different binary cannot be
+    # produced. It carries the AGPL licence and a source pointer at /licenses. Decision record:
+    # igniteiq-docs decisions/open/0043.
+    #
+    # ⚠️ Do NOT reach for `global.image.registry` instead. It repoints ALL ELEVEN images the
+    # chart builds (airbyte/*, temporalio/*, …), of which only minio is mirrored today, so it
+    # turns one broken pull into ten. Mirroring the rest is the end state, not this change.
     image:
-      repository: quay.io/minio/minio
+      repository: ${REGION}-docker.pkg.dev/${PROJECT_ID}/depot-connectors/minio/minio
       tag: RELEASE.2023-11-20T22-40-07Z
 YAML
+
+# 🔴 ENG-828 preflight. The doc-store image must already be in this project's repo; the
+# publisher puts it there alongside the connector and the chart (connector_push.sh). Without
+# it the install does not fail — it hangs in `helm --wait` for 20 minutes and then times out
+# with ImagePullBackOff, which reads as a cluster problem and is not one. Fail here instead.
+if ! gcloud artifacts docker images describe \
+      "${REGION}-docker.pkg.dev/${PROJECT_ID}/depot-connectors/minio/minio:RELEASE.2023-11-20T22-40-07Z" \
+      --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  echo "[depot_bootstrap] FATAL: the doc-store image is not in ${PROJECT_ID}'s depot-connectors repo." >&2
+  echo "[depot_bootstrap] MinIO no longer publishes it, so there is no public fallback (ENG-828)." >&2
+  echo "[depot_bootstrap] Ask IgniteIQ to publish it, then re-run. Decision: igniteiq-docs decisions/open/0043." >&2
+  exit 1
+fi
 
 log "installing Depot ingestion runtime (auth off)"
 helm upgrade --install depot "${CHART_OCI_REF}" \
