@@ -142,3 +142,95 @@ resource "google_project_iam_member" "platform_bq_metadata_viewer" {
   role    = "roles/bigquery.metadataViewer"
   member  = "serviceAccount:${var.igniteiq_platform_sa}"
 }
+
+# ── Depot v2, ENG-1021. Everything below is additive and OFF unless
+# depot_v2_enabled = true; with it false an apply on a live tenant changes nothing. Names carry
+# `depot-v2` so they collide with nothing of the running Depot's.
+
+# ── Identity: the existing depot-sa ──────────────────────────────────────────
+# No new service account. Every component runs as one Kubernetes ServiceAccount,
+# bound to depot-sa, which already holds bigquery.jobUser and dataEditor. What it
+# gains is below: the secret roles and this binding. The ingestion runtime and the
+# relay already run as depot-sa, so they gain the same.
+# Same ordering trap as iam.tf: the identity pool exists only once the cluster does.
+resource "google_service_account_iam_member" "depot_v2_wi" {
+  count              = local.v2
+  service_account_id = google_service_account.depot.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "serviceAccount:${var.project_id}.svc.id.goog[${local.v2_namespace}/${local.v2_ksa}]"
+
+  depends_on = [google_container_cluster.depot]
+}
+
+# The operator runs as the same depot-sa (decision 0045, option C) from its own namespace:
+# it polls the IgniteIQ platform with depot-sa's identity token and pulls the engine chart
+# with depot-sa's access token. Its own, narrower account is a 0045 follow-up.
+resource "google_service_account_iam_member" "depot_operator_wi" {
+  count              = local.operator
+  service_account_id = google_service_account.depot.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "serviceAccount:${var.project_id}.svc.id.goog[${local.operator_namespace}/${local.operator_ksa}]"
+
+  depends_on = [google_container_cluster.depot]
+}
+
+# `helm pull` of the engine chart, as depot-sa. The node identity reads images at pull time
+# (artifactregistry.tf node_reader); the chart is read by the operator itself.
+resource "google_artifact_registry_repository_iam_member" "depot_operator_chart_reader" {
+  count      = local.operator
+  project    = var.project_id
+  location   = google_artifact_registry_repository.depot_connectors.location
+  repository = google_artifact_registry_repository.depot_connectors.repository_id
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:${google_service_account.depot.email}"
+}
+
+# ── Secret Manager: two custom roles on depot-sa ─────────────────────────────
+# The engine stores each connection's credentials itself: get, create, add a
+# version, access, delete. Nothing predefined short of secretmanager.admin can
+# CREATE a secret, and admin reads every secret in the project. Two roles because
+# of how conditions bind:
+#   - create is checked against the PROJECT (the secret does not exist yet), so a
+#     name condition would deny it; it gets an unconditional, create-only role.
+#   - get/delete/add/access are checked against the SECRET, so they are granted
+#     under a condition on the prefix and reach nothing else in the project.
+# ❓ Unverified end to end.
+
+resource "google_project_iam_custom_role" "depot_v2_secret_creator" {
+  count       = local.v2
+  project     = var.project_id
+  role_id     = "depotV2SecretCreator"
+  title       = "Depot v2 — create secrets"
+  permissions = ["secretmanager.secrets.create"]
+}
+
+resource "google_project_iam_custom_role" "depot_v2_secret_owner" {
+  count   = local.v2
+  project = var.project_id
+  role_id = "depotV2SecretOwner"
+  title   = "Depot v2 — manage its own secrets"
+  permissions = [
+    "secretmanager.secrets.get",
+    "secretmanager.secrets.delete",
+    "secretmanager.versions.add",
+    "secretmanager.versions.access",
+  ]
+}
+
+resource "google_project_iam_member" "depot_v2_secret_creator" {
+  count   = local.v2
+  project = var.project_id
+  role    = google_project_iam_custom_role.depot_v2_secret_creator[0].id
+  member  = "serviceAccount:${google_service_account.depot.email}"
+}
+
+resource "google_project_iam_member" "depot_v2_secret_owner" {
+  count   = local.v2
+  project = var.project_id
+  role    = google_project_iam_custom_role.depot_v2_secret_owner[0].id
+  member  = "serviceAccount:${google_service_account.depot.email}"
+  condition {
+    title      = "depot-v2 secrets only"
+    expression = local.v2_secret_condition
+  }
+}

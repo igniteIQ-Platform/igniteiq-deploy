@@ -117,6 +117,43 @@ variable "depot_chart_version" {
   description = "Pinned Depot ingestion chart version."
 }
 
+# ── Depot v2, ENG-1021 — off by default ──────────────────────────────────────────
+variable "depot_v2_enabled" {
+  type        = bool
+  default     = false
+  description = "Stand up the second-generation ingestion runtime beside the running Depot. Additive; false creates nothing."
+}
+
+variable "depot_v2_chart_name" {
+  type        = string
+  default     = "depot-ingest-v2"
+  description = "Depot v2 ingestion chart artifact name inside this project's depot-connectors repository."
+}
+
+variable "depot_v2_chart_version" {
+  type        = string
+  default     = "0.2.0"
+  description = "Depot v2 ingestion chart version the bootstrap installs. After install the operator applies the version the IgniteIQ platform holds for this tenant; a re-apply with a new value here re-runs the bootstrap."
+}
+
+variable "depot_operator_chart_name" {
+  type        = string
+  default     = "depot-operator"
+  description = "Depot operator chart artifact name inside this project's depot-connectors repository."
+}
+
+variable "depot_operator_chart_version" {
+  type        = string
+  default     = ""
+  description = "Depot operator chart version to install beside Depot v2. Empty installs no operator: the engine runs, and nothing in this project can change its version until one is set."
+}
+
+variable "depot_operator_image_digest" {
+  type        = string
+  default     = ""
+  description = "sha256 digest of the operator image in this project's depot-connectors repository, pinned so the running operator is exactly the one IgniteIQ published. Required when depot_operator_chart_version is set."
+}
+
 variable "connector_image_name" {
   type        = string
   default     = "servicetitan"

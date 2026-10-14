@@ -83,7 +83,7 @@ An entry does **not** hide a finding — the check still prints it, marked ACCEP
 - Don't commit customer identifiers, project ids or SA emails — this repo is public.
 - Don't introduce vendor names into anything a customer configures or sees. The only exception is cluster-internal, kubectl-only names fixed by the upstream chart in `depot_bootstrap.sh`.
 - Don't commit `terraform.tfvars` (gitignored) or any state file.
-- Don't make the runtime pull from a public registry — the connector-push callback copies all three OCI artifacts into the customer's own `depot-connectors` repo.
+- Don't make the runtime pull from a public registry — the connector-push callback copies every runtime OCI artifact (and with Depot v2, its chart and operator) into the customer's own `depot-connectors` repo.
 - Don't revoke an IAM binding to satisfy the parity check. Add the correct grant; record the wider one as an exception.
 
 ## Housekeeping

@@ -51,3 +51,17 @@ resource "google_sql_database" "depot" {
   name     = "db-depot"
   instance = google_sql_database_instance.depot.name
 }
+
+# ── Depot v2, ENG-1021. Everything below is additive and OFF unless
+# depot_v2_enabled = true; with it false an apply on a live tenant changes nothing. Names carry
+# `depot-v2` so they collide with nothing of the running Depot's.
+
+# ── Databases, on the existing instance ──────────────────────────────────────
+# db-depot is never touched. The engine and its identity provider each get
+# their own. ❓ The engine against Cloud SQL Postgres 15 is unrun.
+resource "google_sql_database" "depot_v2" {
+  for_each = var.depot_v2_enabled ? toset(["db-depot-v2", "db-depot-v2-idp"]) : toset([])
+  project  = var.project_id
+  name     = each.value
+  instance = google_sql_database_instance.depot.name
+}
