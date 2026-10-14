@@ -11,6 +11,11 @@ resource "null_resource" "connector_push" {
   triggers = {
     repo = google_artifact_registry_repository.depot_connectors.id
     tag  = var.connector_image_tag
+    # Depot v2 (ENG-1085): a new chart version or operator digest must be copied in before
+    # depot_v2_bootstrap re-runs and asks the cluster for it. Empty strings while v2 is off.
+    v2_chart         = local.v2_chart_version
+    operator_version = local.operator_chart_version
+    operator_digest  = local.operator_image_digest
   }
 
   provisioner "local-exec" {
@@ -28,6 +33,14 @@ resource "null_resource" "connector_push" {
       # The chart is copied in the same request — same target repo, same grant.
       CHART_NAME    = var.depot_chart_name
       CHART_VERSION = var.depot_chart_version
+      # Depot v2: the engine chart, the operator chart and the operator image, into the same
+      # repo. All empty while depot_v2_enabled is false, and the script then sends none of them,
+      # so a tenant without v2 makes the exact request it made before.
+      V2_CHART_NAME          = local.v2_chart_name
+      V2_CHART_VERSION       = local.v2_chart_version
+      OPERATOR_CHART_NAME    = local.operator_chart_name
+      OPERATOR_CHART_VERSION = local.operator_chart_version
+      OPERATOR_IMAGE_DIGEST  = local.operator_image_digest
     }
   }
 
@@ -78,5 +91,66 @@ resource "null_resource" "depot_bootstrap" {
     google_artifact_registry_repository_iam_member.node_reader,
     google_secret_manager_secret_version.relay,
     google_bigquery_dataset.datasets,
+  ]
+}
+
+# ── Depot v2, ENG-1021. Everything below is additive and OFF unless
+# depot_v2_enabled = true; with it false an apply on a live tenant changes nothing. Names carry
+# `depot-v2` so they collide with nothing of the running Depot's.
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
+# Shorter than depot_bootstrap.sh: auth is on from the first install, no connector
+# is registered, nothing is read back out of the cluster, and it does NOT call
+# infra-ready — that callback is what switches a tenant over, made later. It does
+# create the BigQuery sink, as depot_bootstrap.sh creates its destination.
+# Re-runs on a chart version change, which is how an upgrade reaches the tenant.
+resource "null_resource" "depot_v2_bootstrap" {
+  count = local.v2
+  triggers = {
+    cluster          = google_container_cluster.depot.id
+    chart_version    = var.depot_v2_chart_version
+    operator_version = var.depot_operator_chart_version
+    operator_digest  = var.depot_operator_image_digest
+  }
+
+  provisioner "local-exec" {
+    command     = "${path.module}/scripts/depot_v2_bootstrap.sh"
+    interpreter = ["bash", "-c"]
+    environment = {
+      PROJECT_ID      = var.project_id
+      REGION          = var.region
+      SLUG            = var.slug
+      CLUSTER_NAME    = google_container_cluster.depot.name
+      NAMESPACE       = local.v2_namespace
+      DEPOT_SA        = google_service_account.depot.email
+      IMAGE_REPO      = "${var.region}-docker.pkg.dev/${var.project_id}/${local.connector_repo}"
+      SQL_PRIVATE_IP  = google_sql_database_instance.depot.private_ip_address
+      SQL_ROOT_SECRET = google_secret_manager_secret.depot_sql_root.secret_id
+      SECRET_PREFIX   = local.v2_secret_prefix
+      BQ_LOCATION     = google_bigquery_dataset.depot_raw_v2[0].location # the sink's location must equal the dataset's
+      CHART_OCI_REF   = "oci://${var.region}-docker.pkg.dev/${var.project_id}/${local.connector_repo}/${var.depot_v2_chart_name}"
+      CHART_VERSION   = var.depot_v2_chart_version
+      # The operator (decision 0045, option C). Empty OPERATOR_CHART_VERSION installs none.
+      OPERATOR_NAMESPACE     = local.operator_namespace
+      OPERATOR_CHART_OCI_REF = "oci://${var.region}-docker.pkg.dev/${var.project_id}/${local.connector_repo}/${var.depot_operator_chart_name}"
+      OPERATOR_CHART_VERSION = var.depot_operator_chart_version
+      OPERATOR_IMAGE_DIGEST  = var.depot_operator_image_digest
+      PLATFORM_URL           = var.callback_base_url # also the audience of the operator's identity token
+    }
+  }
+
+  depends_on = [
+    null_resource.connector_push,  # the v2 chart, operator chart and operator image are copied there
+    null_resource.depot_bootstrap, # deploys the one relay this script then points at v2
+    google_container_cluster.depot,
+    google_service_account_iam_member.depot_v2_wi,
+    google_project_iam_member.depot_v2_secret_creator,
+    google_project_iam_member.depot_v2_secret_owner,
+    google_secret_manager_secret_version.depot_v2,
+    google_secret_manager_secret_iam_member.depot_v2_relay_reader,
+    google_sql_database.depot_v2,
+    google_bigquery_dataset.depot_raw_v2,
+    google_service_account_iam_member.depot_operator_wi,
+    google_artifact_registry_repository_iam_member.depot_operator_chart_reader,
   ]
 }

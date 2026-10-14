@@ -78,6 +78,30 @@ def _attr(body: str, name: str) -> str | None:
     return m.group(1).strip() if m else None
 
 
+def _bool_var_default(src: str, name: str) -> bool:
+    """variable "x" { default = true|false } -> that bool; absent -> False."""
+    for vname, body in _hcl_bodies(src.replace('resource "', 'resource "x" "').replace("variable ", 'resource "variable" '), "variable"):
+        if vname.strip('"') == name:
+            return (_attr(body, "default") or "false").strip() == "true"
+    return False
+
+
+# The Depot v2 resources ride in the same files, gated on depot_v2_enabled: a
+# `count = local.v2` or a `for_each` that branches on `var.depot_v2_enabled` (ENG-1021). With
+# the flag off, Terraform creates none of them, so the spec must derive none of them — else
+# every tenant reads as missing a set of grants and secrets it was never meant to have.
+# Off is the only state this check models: it reads variable DEFAULTS, not a tenant's
+# tfvars, so the first tenant to flip the flag also needs this check taught to derive the
+# v2 set (its secrets ride local.v2_secrets, not the ServiceTitan fields) — until then it
+# would under- and mis-derive for that tenant, and the self-test says so.
+_V2_GATES = ("local.v2", "var.depot_v2_enabled")
+
+
+def _v2_gated(body: str) -> bool:
+    gate = f"{_attr(body, 'count') or ''} {_attr(body, 'for_each') or ''}"
+    return any(g in gate for g in _V2_GATES)
+
+
 def _var_defaults(src: str) -> dict[str, str]:
     """variable "x" { ... default = "y" } -> {x: y}. Only string defaults matter here."""
     out: dict[str, str] = {}
@@ -139,6 +163,7 @@ class Spec:
         locals_ = (root / "locals.tf").read_text()
 
         self.project, self.slug = project, slug
+        self.v2_enabled = _bool_var_default(variables, "depot_v2_enabled")
         self.vars = _var_defaults(variables)
         self.var_lists = _var_list_defaults(variables)
         self.st_fields = _list_local(locals_, "st_secret_fields")
@@ -149,6 +174,8 @@ class Spec:
 
         self.project_iam: set[tuple[str, str]] = set()
         for _, body in _hcl_bodies(iam, "google_project_iam_member"):
+            if self._off(body):
+                continue
             role, member = _attr(body, "role"), _attr(body, "member")
             if role and member:
                 for one in self._expand(body, member):
@@ -156,6 +183,8 @@ class Spec:
 
         self.dataset_iam: set[tuple[str, str, str]] = set()
         for _, body in _hcl_bodies(iam, "google_bigquery_dataset_iam_member"):
+            if self._off(body):
+                continue
             ds, role, member = _attr(body, "dataset_id"), _attr(body, "role"), _attr(body, "member")
             if ds and role and member:
                 m = re.search(r'datasets\["([^"]+)"\]', ds)
@@ -166,6 +195,8 @@ class Spec:
         self.secrets: set[str] = set()
         self.secret_iam: set[tuple[str, str, str]] = set()
         for _, body in _hcl_bodies(secrets, "google_secret_manager_secret"):
+            if self._off(body):
+                continue
             sid = _attr(body, "secret_id")
             if not sid:
                 continue
@@ -175,6 +206,8 @@ class Spec:
             else:
                 self.secrets.add(self._resolve(sid))
         for _, body in _hcl_bodies(secrets, "google_secret_manager_secret_iam_member"):
+            if self._off(body):
+                continue
             role, member = _attr(body, "role"), _attr(body, "member")
             if not (role and member):
                 continue
@@ -182,6 +215,10 @@ class Spec:
             targets = sorted(s for s in self.secrets if "-servicetitan-" in s) if "each.value" in (_attr(body, "secret_id") or "") else sorted(self.secrets)
             for t in targets:
                 self.secret_iam.add((t, self._resolve(role), self._resolve(member)))
+
+    def _off(self, body: str) -> bool:
+        """A Depot v2 resource while depot_v2_enabled is false: not provisioned, so not expected."""
+        return _v2_gated(body) and not self.v2_enabled
 
     def _expand(self, body: str, raw: str) -> list[str]:
         """One member, or N of them when the resource is for_each'd over a variable set.
@@ -428,6 +465,14 @@ def self_test() -> int:
     got_forge = sum(1 for r, m in spec.project_iam if "dataEditor" in r and "forge-runner" in m)
     if want_forge < 2 or got_forge != want_forge:
         problems.append(f"forge dataEditor derived for {got_forge} SA(s), expected {want_forge}")
+
+    # Depot v2 is off by default and must contribute nothing: every one of its names
+    # carries depot-v2 / depotV2, so one search over everything derived settles it.
+    derived = json.dumps([sorted(spec.project_iam), sorted(spec.secrets), sorted(spec.secret_iam), sorted(spec.dataset_iam)])
+    if spec.v2_enabled:
+        problems.append("depot_v2_enabled defaults to true; the gate check assumes a default of false")
+    if "depot-v2" in derived or "depotV2" in derived or "depot_v2" in derived:
+        problems.append("derived a Depot v2 grant or secret while depot_v2_enabled is false (ENG-1021 gate)")
 
     if "${" in json.dumps([sorted(spec.project_iam), sorted(spec.secrets), sorted(spec.dataset_iam)]):
         problems.append("unresolved terraform interpolation left in the derived spec")
