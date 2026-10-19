@@ -187,13 +187,15 @@ resource "google_artifact_registry_repository_iam_member" "depot_operator_chart_
 
 # ── Secret Manager: two custom roles on depot-sa ─────────────────────────────
 # The engine stores each connection's credentials itself: get, create, add a
-# version, access, delete. Nothing predefined short of secretmanager.admin can
-# CREATE a secret, and admin reads every secret in the project. Two roles because
-# of how conditions bind:
+# version, access, delete. A connection whose refresh is managed by the engine
+# (OAuth) rotates its token in place: a new version is added and the old one is
+# destroyed, so the owner role also carries versions.destroy. Nothing predefined
+# short of secretmanager.admin can CREATE a secret, and admin reads every secret
+# in the project. Two roles because of how conditions bind:
 #   - create is checked against the PROJECT (the secret does not exist yet), so a
 #     name condition would deny it; it gets an unconditional, create-only role.
-#   - get/delete/add/access are checked against the SECRET, so they are granted
-#     under a condition on the prefix and reach nothing else in the project.
+#   - get/delete/add/access/destroy are checked against the SECRET, so they are
+#     granted under a condition on the prefix and reach nothing else in the project.
 # ❓ Unverified end to end.
 
 resource "google_project_iam_custom_role" "depot_v2_secret_creator" {
@@ -214,6 +216,7 @@ resource "google_project_iam_custom_role" "depot_v2_secret_owner" {
     "secretmanager.secrets.delete",
     "secretmanager.versions.add",
     "secretmanager.versions.access",
+    "secretmanager.versions.destroy",
   ]
 }
 
