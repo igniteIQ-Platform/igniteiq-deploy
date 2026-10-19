@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Installs Depot v2 next to the running Depot, creates its BigQuery sink and
-# points the tenant's one relay at it. It does not call infra-ready, so the
-# platform keeps using the running Depot until a tenant is switched over separately.
+# Installs Depot v2, creates its BigQuery sink, and points the tenant's one relay at
+# it: updating the relay the running Depot's bootstrap deployed, or, on a project
+# with no running Depot (DEPLOY_RELAY=1), deploying it. Then registers the engine
+# with infra-ready. Registering is not switching: a tenant already on the running
+# Depot stays on it, and only a tenant that never registered starts on v2.
 #
 # Secret values are never passed as arguments, logged or written to disk.
 # They are piped to each tool on stdin.
@@ -156,27 +158,57 @@ done
 log "internal load balancer ${ILB_IP}"
 
 if [[ "${SKIP_RELAY:-0}" == "1" ]]; then
-  log "SKIP_RELAY=1: the relay was not updated"
+  log "SKIP_RELAY=1: the relay was not updated and the engine was not registered"
   exit 0
 fi
 
-# There is ONE relay per tenant, deployed by depot_bootstrap.sh in front of the running
-# Depot. The same image serves v2: it forwards v2 paths to the engine and everything else
-# where it always went, so this only ADDS the v2 settings to the existing service. Its URL
-# and RELAY_SECRET do not change, which is why no second relay secret exists for v2. The
-# engine's client secret is mounted as a FILE: the relay exchanges it for the engine's token
-# and never logs it, and a file keeps it out of the service's environment and its revision
-# description. The relay reads it from Secret Manager itself; this only checks it exists.
+# There is ONE relay per tenant. The same image serves both engines: it forwards v2 paths
+# to the engine and everything else to the running Depot, and runs with either alone. Its
+# URL and RELAY_SECRET are the tenant's, whichever engine is behind it, which is why no
+# second relay secret exists for v2. The engine's client secret is mounted as a FILE: the
+# relay exchanges it for the engine's token and never logs it, and a file keeps it out of
+# the service's environment and its revision description. The relay reads it from Secret
+# Manager itself; this only checks it exists.
 [[ "$(gcloud secrets versions describe latest --secret="depot-v2-client-secret-${SLUG}" \
   --project="${PROJECT_ID}" --format='value(state)')" == "ENABLED" ]] || die "depot-v2-client-secret-${SLUG} has no enabled version"
-gcloud run services describe depot-relay --project="${PROJECT_ID}" --region="${REGION}" --format='value(name)' >/dev/null 2>&1 \
-  || die "no depot-relay service: the running Depot's bootstrap deploys it, and this only updates it"
-gcloud run services update depot-relay --project="${PROJECT_ID}" --region="${REGION}" \
-  --update-env-vars="DEPOT_V2_INTERNAL_URL=http://${ILB_IP}:8080,DEPOT_V2_CLIENT_SECRET_FILE=/secrets/client-secret" \
-  --update-secrets="/secrets/client-secret=depot-v2-client-secret-${SLUG}:latest" \
-  --quiet >/dev/null
-RELAY_URL="$(gcloud run services describe depot-relay --project="${PROJECT_ID}" --region="${REGION}" --format='value(status.url)')"
+V2_ENV="DEPOT_V2_INTERNAL_URL=http://${ILB_IP}:8080,DEPOT_V2_CLIENT_SECRET_FILE=/secrets/client-secret"
+V2_SECRETS="/secrets/client-secret=depot-v2-client-secret-${SLUG}:latest"
 
-# Switching a tenant over later is a platform-side change; the relay URL the platform holds
-# for this tenant is unchanged.
-log "Depot v2 is up behind ${RELAY_URL} and unreferenced; the running Depot is unchanged."
+if gcloud run services describe depot-relay --project="${PROJECT_ID}" --region="${REGION}" --format='value(name)' >/dev/null 2>&1; then
+  # Beside the running Depot: depot_bootstrap.sh deployed it, so only ADD the v2 settings.
+  gcloud run services update depot-relay --project="${PROJECT_ID}" --region="${REGION}" \
+    --update-env-vars="${V2_ENV}" --update-secrets="${V2_SECRETS}" --quiet >/dev/null
+elif [[ "${DEPLOY_RELAY:-0}" == "1" ]]; then
+  # v2 only: nothing deployed it. The flags are depot_bootstrap.sh's, with RELAY_SECRET
+  # mounted from Secret Manager rather than written into the environment.
+  # 🔴 --service-account is LOAD-BEARING, as in depot_bootstrap.sh: the default compute SA
+  # cannot read secrets (ENG-739).
+  log "deploying the relay"
+  gcloud run deploy depot-relay --project="${PROJECT_ID}" --region="${REGION}" \
+    --image="${RELAY_IMAGE}" \
+    --service-account="${DEPOT_SA}" \
+    --set-env-vars="${V2_ENV}" \
+    --set-secrets="RELAY_SECRET=${RELAY_SECRET_NAME}:latest,${V2_SECRETS}" \
+    --allow-unauthenticated --no-cpu-throttling --min-instances=1 \
+    --network=default --subnet=default --vpc-egress=all-traffic --quiet >/dev/null
+else
+  die "no depot-relay service: with v1 on, the running Depot's bootstrap deploys it, and this only updates it"
+fi
+RELAY_URL="$(gcloud run services describe depot-relay --project="${PROJECT_ID}" --region="${REGION}" --format='value(status.url)')"
+[[ -n "${RELAY_URL}" ]] || die "the relay has no URL"
+log "relay ${RELAY_URL}"
+
+# Register the engine. The body carries the installed chart version, which seeds the
+# operator's rollout row and must be a release IgniteIQ published (422 otherwise). The
+# relay secret is piped, never passed as an argument.
+log "registering Depot v2 with IgniteIQ"
+RESP="$(mktemp)"
+trap 'rm -f "${VALUES}" "${IMAGES}" "${RESP}"; if [[ -n "${PF_PID}" ]]; then kill "${PF_PID}" 2>/dev/null || true; fi' EXIT
+CODE="$(secret "${RELAY_SECRET_NAME}" \
+  | python3 -c 'import sys,json; print(json.dumps({"orgId":sys.argv[1],"engine":"V2","relayUrl":sys.argv[2],"relaySecret":sys.stdin.read(),"chartVersion":sys.argv[3]}))' \
+      "${ORG_ID}" "${RELAY_URL}" "${CHART_VERSION}" \
+  | curl -s -o "${RESP}" -w '%{http_code}' --max-time 60 -X POST "${CALLBACK_BASE_URL}/api/onboarding/infra-ready" \
+      -H "Authorization: Bearer ${PROVISIONING_TOKEN}" -H 'Content-Type: application/json' --data @- || echo 000)"
+[[ "${CODE}" == "200" ]] || die "infra-ready returned HTTP ${CODE}: $(cat "${RESP}")"
+log "registered: $(python3 -c 'import sys,json; r=json.load(open(sys.argv[1])); print("engine", r.get("engine"), "rollout", r.get("rollout"))' "${RESP}")"
+log "Depot v2 is up behind ${RELAY_URL}."

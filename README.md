@@ -61,6 +61,20 @@ bash scripts/bootstrap_state.sh    # create the customer-owned state bucket (D3)
 bash scripts/ensure_terraform.sh   # install Terraform if Cloud Shell lacks it
 terraform init && terraform apply  # ~15–20 min
 
+### Ingestion runtimes — `depot_v1_enabled`, `depot_v2_enabled`
+
+| Shape | `depot_v1_enabled` | `depot_v2_enabled` | Use |
+|---|---|---|---|
+| v1 only | `true` (default) | `false` (default) | every existing deployment |
+| both | `true` | `true` | Depot v2 installed beside the running Depot |
+| v2 only | `false` | `true` | a new project that runs Depot v2 alone |
+
+With both on, the v2 bootstrap points the existing relay at Depot v2 and registers it;
+the running Depot keeps serving until IgniteIQ switches the tenant over. With v2 only,
+nothing of the first-generation runtime is installed, the v2 bootstrap deploys the relay,
+and the tenant is registered on Depot v2 directly. Turning `depot_v1_enabled` off where
+it is already installed is **not** a supported teardown.
+
 ### Deploy mode — `IGNITEIQ_DEPLOY_MODE`
 
 `preflight.sh` (and `bootstrap_state.sh`, which calls it) takes

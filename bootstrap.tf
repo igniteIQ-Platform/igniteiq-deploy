@@ -53,6 +53,7 @@ resource "null_resource" "connector_push" {
 # 2. Depot runtime bootstrap — cluster app config + relay + infra-ready.
 #    Runs the whole runtime sequence in one ordered script (set -euo pipefail).
 resource "null_resource" "depot_bootstrap" {
+  count = local.v1
   triggers = {
     cluster       = google_container_cluster.depot.id
     chart_version = var.depot_chart_version
@@ -69,7 +70,7 @@ resource "null_resource" "depot_bootstrap" {
       K8S_SA             = local.depot_k8s_sa
       DEPOT_SA           = google_service_account.depot.email
       SQL_PRIVATE_IP     = google_sql_database_instance.depot.private_ip_address
-      SQL_DB             = google_sql_database.depot.name
+      SQL_DB             = google_sql_database.depot[0].name
       SQL_ROOT_SECRET    = google_secret_manager_secret.depot_sql_root.secret_id
       CHART_OCI_REF      = local.chart_oci_ref
       CHART_VERSION      = var.depot_chart_version
@@ -94,15 +95,24 @@ resource "null_resource" "depot_bootstrap" {
   ]
 }
 
+# Re-keys every live tenant's state with no API call: without it the bootstrap would re-run.
+moved {
+  from = null_resource.depot_bootstrap
+  to   = null_resource.depot_bootstrap[0]
+}
+
 # ── Depot v2, ENG-1021. Everything below is additive and OFF unless
 # depot_v2_enabled = true; with it false an apply on a live tenant changes nothing. Names carry
 # `depot-v2` so they collide with nothing of the running Depot's.
 
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 # Shorter than depot_bootstrap.sh: auth is on from the first install, no connector
-# is registered, nothing is read back out of the cluster, and it does NOT call
-# infra-ready — that callback is what switches a tenant over, made later. It does
-# create the BigQuery sink, as depot_bootstrap.sh creates its destination.
+# is registered and nothing is read back out of the cluster. It creates the BigQuery
+# sink, as depot_bootstrap.sh creates its destination, then reaches the relay: it
+# updates the one depot_bootstrap.sh deployed, or with v1 off deploys it. Last it
+# registers the engine with infra-ready. That is not the switch: a tenant already on
+# the running Depot stays on it, and only a never-registered tenant (v2 only) starts
+# on v2 (igniteiq-platform onboarding/infraReady.ts).
 # Re-runs on a chart version change, which is how an upgrade reaches the tenant.
 resource "null_resource" "depot_v2_bootstrap" {
   count = local.v2
@@ -136,12 +146,22 @@ resource "null_resource" "depot_v2_bootstrap" {
       OPERATOR_CHART_VERSION = var.depot_operator_chart_version
       OPERATOR_IMAGE_DIGEST  = var.depot_operator_image_digest
       PLATFORM_URL           = var.callback_base_url # also the audience of the operator's identity token
+      # The relay: deployed here when v1 is off (DEPLOY_RELAY=1), updated otherwise.
+      DEPLOY_RELAY      = tostring(local.v2_only)
+      RELAY_IMAGE       = "${var.region}-docker.pkg.dev/${var.project_id}/${local.connector_repo}/depot-relay:latest"
+      RELAY_SECRET_NAME = google_secret_manager_secret.relay.secret_id
+      # Registration (infra-ready, engine V2).
+      CALLBACK_BASE_URL  = var.callback_base_url
+      PROVISIONING_TOKEN = var.provisioning_token
+      ORG_ID             = var.igniteiq_org_id
     }
   }
 
   depends_on = [
     null_resource.connector_push,  # the v2 chart, operator chart and operator image are copied there
-    null_resource.depot_bootstrap, # deploys the one relay this script then points at v2
+    null_resource.depot_bootstrap, # with v1 on, deploys the one relay this script then points at v2
+    google_secret_manager_secret_version.relay,
+    google_secret_manager_secret_iam_member.depot_v2_relay_secret_reader,
     google_container_cluster.depot,
     google_service_account_iam_member.depot_v2_wi,
     google_project_iam_member.depot_v2_secret_creator,

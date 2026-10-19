@@ -117,11 +117,23 @@ variable "depot_chart_version" {
   description = "Pinned Depot ingestion chart version."
 }
 
+# ── Which ingestion runtimes this project runs ───────────────────────────────────
+# The three supported shapes:
+#   v1 only   depot_v1_enabled = true,  depot_v2_enabled = false   (the default; every tenant today)
+#   both      depot_v1_enabled = true,  depot_v2_enabled = true    (v2 beside the running Depot)
+#   v2 only   depot_v1_enabled = false, depot_v2_enabled = true    (a new tenant with no v1)
+# At least one must be on (gke.tf).
+variable "depot_v1_enabled" {
+  type        = bool
+  default     = true
+  description = "Install the first-generation ingestion runtime. Set false only on a NEW project that runs Depot v2 alone. ⚠️ Turning it off where v1 is installed is not a supported teardown: it removes v1's database and identity binding from Terraform but leaves the runtime in the cluster."
+}
+
 # ── Depot v2, ENG-1021 — off by default ──────────────────────────────────────────
 variable "depot_v2_enabled" {
   type        = bool
   default     = false
-  description = "Stand up the second-generation ingestion runtime beside the running Depot. Additive; false creates nothing."
+  description = "Stand up the second-generation ingestion runtime, beside the running Depot or (with depot_v1_enabled = false) on its own. Additive; false creates nothing."
 }
 
 variable "depot_v2_chart_name" {

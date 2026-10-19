@@ -38,7 +38,9 @@ locals {
 
   # ── Depot v2, ENG-1021 — see the gated resources in iam.tf, secrets.tf, cloudsql.tf,
   # bigquery.tf and bootstrap.tf ──
+  v1                 = var.depot_v1_enabled ? 1 : 0
   v2                 = var.depot_v2_enabled ? 1 : 0
+  v2_only            = !var.depot_v1_enabled && var.depot_v2_enabled ? 1 : 0 # v2 then deploys the relay itself
   v2_namespace       = "depot-v2"
   v2_ksa             = "depot-v2-server" # the chart's ONE Kubernetes ServiceAccount, for every component
   operator           = var.depot_v2_enabled && var.depot_operator_chart_version != "" ? 1 : 0

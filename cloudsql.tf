@@ -47,9 +47,16 @@ resource "google_sql_database_instance" "depot" {
 }
 
 resource "google_sql_database" "depot" {
+  count    = local.v1
   project  = var.project_id
   name     = "db-depot"
   instance = google_sql_database_instance.depot.name
+}
+
+# Every live tenant's state holds the un-indexed address; this re-keys it with no API call.
+moved {
+  from = google_sql_database.depot
+  to   = google_sql_database.depot[0]
 }
 
 # ── Depot v2, ENG-1021. Everything below is additive and OFF unless
