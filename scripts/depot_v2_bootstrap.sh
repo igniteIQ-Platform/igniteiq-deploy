@@ -68,14 +68,16 @@ ingest:
         iam.gke.io/gcp-service-account: "${DEPOT_SA}"
 YAML
 
-# Pull the engine images from this project's registry. Leave IMAGE_REPO unset to use
-# the chart's defaults (the sandbox has no registry of its own).
-if [[ -n "${IMAGE_REPO:-}" ]]; then
+# The engine images come from their public registry, the chart's defaults, as the running
+# Depot's runtime images do; only IgniteIQ-built artifacts (the charts, the operator, the
+# relay) are copied into this project. ENGINE_IMAGE_REPO repoints them at a mirror that
+# already holds depot-v2-{server,control-plane,worker}; nothing publishes them there today.
+if [[ -n "${ENGINE_IMAGE_REPO:-}" ]]; then
   cat >"${IMAGES}" <<YAML
 ingest:
-  server: { image: { repository: "${IMAGE_REPO}/depot-v2-server" } }
-  controlPlane: { image: { repository: "${IMAGE_REPO}/depot-v2-control-plane" } }
-  worker: { image: { repository: "${IMAGE_REPO}/depot-v2-worker" } }
+  server: { image: { repository: "${ENGINE_IMAGE_REPO}/depot-v2-server" } }
+  controlPlane: { image: { repository: "${ENGINE_IMAGE_REPO}/depot-v2-control-plane" } }
+  worker: { image: { repository: "${ENGINE_IMAGE_REPO}/depot-v2-worker" } }
 YAML
 fi
 

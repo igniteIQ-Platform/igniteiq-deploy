@@ -148,6 +148,12 @@ variable "depot_v2_chart_version" {
   description = "Depot v2 ingestion chart version the bootstrap installs. After install the operator applies the version the IgniteIQ platform holds for this tenant; a re-apply with a new value here re-runs the bootstrap."
 }
 
+variable "depot_v2_engine_image_repo" {
+  type        = string
+  default     = ""
+  description = "Registry path holding depot-v2-server, depot-v2-control-plane and depot-v2-worker, to pull the Depot v2 engine from instead of its public registry. Empty (the default) uses the chart's own image paths. Set only where those images have been mirrored; nothing publishes them into depot-connectors."
+}
+
 variable "depot_operator_chart_name" {
   type        = string
   default     = "depot-operator"

@@ -127,19 +127,21 @@ resource "null_resource" "depot_v2_bootstrap" {
     command     = "${path.module}/scripts/depot_v2_bootstrap.sh"
     interpreter = ["bash", "-c"]
     environment = {
-      PROJECT_ID      = var.project_id
-      REGION          = var.region
-      SLUG            = var.slug
-      CLUSTER_NAME    = google_container_cluster.depot.name
-      NAMESPACE       = local.v2_namespace
-      DEPOT_SA        = google_service_account.depot.email
-      IMAGE_REPO      = "${var.region}-docker.pkg.dev/${var.project_id}/${local.connector_repo}"
-      SQL_PRIVATE_IP  = google_sql_database_instance.depot.private_ip_address
-      SQL_ROOT_SECRET = google_secret_manager_secret.depot_sql_root.secret_id
-      SECRET_PREFIX   = local.v2_secret_prefix
-      BQ_LOCATION     = google_bigquery_dataset.depot_raw_v2[0].location # the sink's location must equal the dataset's
-      CHART_OCI_REF   = "oci://${var.region}-docker.pkg.dev/${var.project_id}/${local.connector_repo}/${var.depot_v2_chart_name}"
-      CHART_VERSION   = var.depot_v2_chart_version
+      PROJECT_ID   = var.project_id
+      REGION       = var.region
+      SLUG         = var.slug
+      CLUSTER_NAME = google_container_cluster.depot.name
+      NAMESPACE    = local.v2_namespace
+      DEPOT_SA     = google_service_account.depot.email
+      IMAGE_REPO   = "${var.region}-docker.pkg.dev/${var.project_id}/${local.connector_repo}" # the operator image
+      # The engine images: empty pulls the chart's defaults from their public registry.
+      ENGINE_IMAGE_REPO = var.depot_v2_engine_image_repo
+      SQL_PRIVATE_IP    = google_sql_database_instance.depot.private_ip_address
+      SQL_ROOT_SECRET   = google_secret_manager_secret.depot_sql_root.secret_id
+      SECRET_PREFIX     = local.v2_secret_prefix
+      BQ_LOCATION       = google_bigquery_dataset.depot_raw_v2[0].location # the sink's location must equal the dataset's
+      CHART_OCI_REF     = "oci://${var.region}-docker.pkg.dev/${var.project_id}/${local.connector_repo}/${var.depot_v2_chart_name}"
+      CHART_VERSION     = var.depot_v2_chart_version
       # The operator (decision 0045, option C). Empty OPERATOR_CHART_VERSION installs none.
       OPERATOR_NAMESPACE     = local.operator_namespace
       OPERATOR_CHART_OCI_REF = "oci://${var.region}-docker.pkg.dev/${var.project_id}/${local.connector_repo}/${var.depot_operator_chart_name}"
