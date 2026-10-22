@@ -29,6 +29,20 @@ else
     --project="${PROJECT_ID}" --location="${REGION}" --uniform-bucket-level-access
 fi
 
+# 🔴 Object versioning, and applied on EVERY run rather than only on create.
+#
+# This holds the only record of what Terraform believes exists. A truncated write, a
+# half-finished apply or a `terraform state rm` against the wrong address is recoverable
+# from a previous generation and is not recoverable without one. Terraform locks against
+# concurrent writes; it does not keep history.
+#
+# Unconditional because buckets made before this line exist and are unversioned — tapps'
+# was created by hand on 2026-10-22 and needed versioning switched on afterwards. Running
+# it every time is idempotent and repairs those in passing, which a create-only flag
+# would not.
+echo "[state] ensuring object versioning on gs://${BUCKET}"
+gcloud storage buckets update "gs://${BUCKET}" --versioning --project="${PROJECT_ID}"
+
 cat > backend.tf <<HCL
 terraform {
   backend "gcs" {
