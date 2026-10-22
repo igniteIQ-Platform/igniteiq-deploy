@@ -28,8 +28,8 @@ resource "google_secret_manager_secret_iam_member" "st_depot_reader" {
 # (it needs the internal LB address, created post-Helm); the secret is here.
 
 resource "random_password" "relay" {
-  length  = 48
-  special = false
+  length  = var.relay_secret_length
+  special = var.relay_secret_special
 }
 
 resource "google_secret_manager_secret" "relay" {

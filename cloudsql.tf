@@ -3,8 +3,8 @@
 # story). Root password is generated here and stored in Secret Manager.
 
 resource "random_password" "depot_sql_root" {
-  length  = 24
-  special = false
+  length  = var.sql_root_password_length
+  special = var.sql_root_password_special
 }
 
 resource "google_secret_manager_secret" "depot_sql_root" {

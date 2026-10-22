@@ -202,3 +202,47 @@ variable "igniteiq_auditor_sa" {
   default     = "tenant-auditor@igniteiq-dev.iam.gserviceaccount.com"
   description = "IgniteIQ read-only posture auditor. Granted a project-level custom role that can read IAM bindings, org-policy settings and secret NAMES — and cannot read this project's data, cannot read secret payloads, and cannot modify anything (ENG-433). Deliberately a separate identity from every other grant here so that claim stays true."
 }
+
+# ── Generated-password shape ─────────────────────────────────────────────────
+# 🔴 THESE EXIST FOR IMPORTS, NOT FOR PREFERENCE. `length` and `special` are force-new on
+# random_password, so a tenant whose live secret was generated with a different shape plans
+# as a REPLACEMENT -- which rotates the password on a running database, or writes a secret
+# version nothing has read.
+#
+# Measured on tapps, 2026-10-22, the first tenant imported rather than built:
+#   depot-sql-root-password    24 chars WITH specials   (harness said special = false)
+#   depot-relay-secret-tapps   64 chars WITH specials   (harness said 48, special = false)
+# Both were made by hand in July. Overriding these two in tapps' tfvars takes its plan from
+# "4 to destroy" to "0 to destroy" without touching the live credentials.
+#
+# ⚠️ DEFAULTS ARE THE FLEET'S CURRENT SHAPE AND MUST NOT DRIFT TO SUIT ONE TENANT. airworks,
+# caddies and airtemp had theirs generated to exactly these values; changing a default here
+# would propose rotating all three on their next apply.
+#
+# 🔴 A plan that replaces random_password.depot_sql_root is a STOP, not a diff: it changes
+# the live root password, nothing reads it back, and deletion_protection now rules out
+# recreating the instance to recover.
+
+variable "sql_root_password_length" {
+  type        = number
+  default     = 24
+  description = "Length of the generated Cloud SQL root password. Override only to match a tenant whose secret predates this harness."
+}
+
+variable "sql_root_password_special" {
+  type        = bool
+  default     = false
+  description = "Whether the generated Cloud SQL root password may contain special characters. Override only to match an imported tenant."
+}
+
+variable "relay_secret_length" {
+  type        = number
+  default     = 48
+  description = "Length of the generated relay shared secret. Override only to match a tenant whose secret predates this harness."
+}
+
+variable "relay_secret_special" {
+  type        = bool
+  default     = false
+  description = "Whether the generated relay shared secret may contain special characters. Override only to match an imported tenant."
+}
