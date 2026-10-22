@@ -68,8 +68,18 @@ resource "google_secret_manager_secret" "depot_v2" {
 }
 
 resource "google_secret_manager_secret_version" "depot_v2" {
-  for_each    = google_secret_manager_secret.depot_v2
-  secret      = each.value.id
+  # 🔴 Static keys, like the two resources above. Iterating the SECRET resource instead made
+  # the key set unknown until apply, which `terraform plan` tolerates by deferring and
+  # `terraform import` cannot: import evaluates the whole configuration up front, so with
+  # depot_v2_enabled = true EVERY import in the root failed with "Invalid for_each argument",
+  # whatever resource was being imported. Found on the first Tapps import, 2026-10-22.
+  #
+  # Terraform's own advice in that error: "define the map keys statically in your
+  # configuration and place apply-time results only in the map values." local.v2_secrets is
+  # that list, and it is already what random_password.depot_v2 and
+  # google_secret_manager_secret.depot_v2 iterate.
+  for_each    = var.depot_v2_enabled ? toset(local.v2_secrets) : toset([])
+  secret      = google_secret_manager_secret.depot_v2[each.key].id
   secret_data = random_password.depot_v2[each.key].result
 }
 
