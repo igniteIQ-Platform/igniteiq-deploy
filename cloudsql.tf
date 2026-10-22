@@ -39,9 +39,33 @@ resource "google_sql_database_instance" "depot" {
       ipv4_enabled    = false
       private_network = "projects/${var.project_id}/global/networks/default"
     }
+
+    # 🔴 R4. This database was declared "reconstructable" and is not, any more. Under the
+    # Depot v2 engine it holds every connection definition AND every sync cursor, so losing
+    # it means a full ServiceTitan re-pull for that tenant -- which ENG-959 turned from a
+    # slow afternoon into a question for counsel. Measured 2026-10-22: tapps runs with
+    # backups OFF.
+    #
+    # 09:00 UTC is deliberate: business-hours refreshes fire on the hour 15:00-23:00 UTC,
+    # so the window sits clear of every scheduled sync.
+    backup_configuration {
+      enabled                        = true
+      point_in_time_recovery_enabled = true
+      start_time                     = "09:00"
+      transaction_log_retention_days = 7
+
+      backup_retention_settings {
+        retained_backups = 30
+        retention_unit   = "COUNT"
+      }
+    }
   }
 
-  deletion_protection = false # self-serve teardown; the config DB is reconstructable
+  # 🔴 R4. Was false, with the comment "self-serve teardown; the config DB is reconstructable".
+  # Both halves of that have stopped being true: the DB is not reconstructable (above), and no
+  # tenant has ever been torn down self-serve. A deliberate teardown now edits this line, which
+  # is the point -- it makes destroying a tenant's cursor state a reviewed act, not a plan away.
+  deletion_protection = true
 
   depends_on = [google_service_networking_connection.depot_psa]
 }

@@ -14,7 +14,9 @@ resource "google_container_cluster" "depot" {
     workload_pool = "${var.project_id}.svc.id.goog"
   }
 
-  deletion_protection = false
+  # 🔴 R4. The cluster can be rebuilt, but not while a tenant is syncing, and a destroy here
+  # takes both engines with it. Protected for the same reason as the database.
+  deletion_protection = true
 
   lifecycle {
     precondition {

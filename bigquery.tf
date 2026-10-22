@@ -7,6 +7,15 @@ resource "google_bigquery_dataset" "datasets" {
   location   = var.region == "us-central1" ? "US" : var.region
   labels     = local.labels
 
+  # 🔴 R4. The warehouse. Today its only protection is that BigQuery refuses to drop a dataset
+  # holding tables unless told to -- which a `terraform destroy` is perfectly willing to tell it.
+  # tapps alone carries 481,843 raw rows and 716,293 ontology rows, none of it reconstructable
+  # without a re-pull. prevent_destroy cannot be lifted by a variable: removing protection is a
+  # commit, reviewed like any other.
+  lifecycle {
+    prevent_destroy = true
+  }
+
   depends_on = [google_project_service.enabled]
 }
 
@@ -23,6 +32,12 @@ resource "google_bigquery_dataset" "depot_raw_v2" {
   dataset_id = "depot_raw_v2"
   location   = var.region == "us-central1" ? "US" : var.region
   labels     = local.labels
+
+  # 🔴 R4, as above. Empty today on every tenant, and the engine's landing zone from the first
+  # sync onward.
+  lifecycle {
+    prevent_destroy = true
+  }
 
   depends_on = [google_project_service.enabled]
 }
