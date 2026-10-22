@@ -26,11 +26,17 @@ resource "google_project_iam_member" "depot_bq_job_user" {
 # local.wi_member references only comes into existence once a Workload-Identity
 # cluster is created (ordering trap surfaced in the first sandbox apply, ENG-258).
 resource "google_service_account_iam_member" "depot_wi" {
+  count              = local.v1
   service_account_id = google_service_account.depot.name
   role               = "roles/iam.workloadIdentityUser"
   member             = local.wi_member
 
   depends_on = [google_container_cluster.depot]
+}
+
+moved {
+  from = google_service_account_iam_member.depot_wi
+  to   = google_service_account_iam_member.depot_wi[0]
 }
 
 # ── IgniteIQ data-plane grants (Forge transforms, Vault queries) ─────────────

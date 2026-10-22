@@ -16,5 +16,12 @@ resource "google_container_cluster" "depot" {
 
   deletion_protection = false
 
+  lifecycle {
+    precondition {
+      condition     = var.depot_v1_enabled || var.depot_v2_enabled
+      error_message = "At least one of depot_v1_enabled and depot_v2_enabled must be true: a cluster with no ingestion runtime has nothing to run."
+    }
+  }
+
   depends_on = [google_project_service.enabled]
 }

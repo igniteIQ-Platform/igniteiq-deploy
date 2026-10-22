@@ -2,9 +2,10 @@
 # later, self-serve, in Studio → Connect ServiceTitan (which uses the
 # write-only path granted in iam.tf). Shells must exist first because the
 # Platform SA can add versions but cannot create secrets.
+# v1 only: Depot v2 stores a connection's credentials itself, by the prefix in iam.tf.
 
 resource "google_secret_manager_secret" "st" {
-  for_each  = toset(local.st_secret_fields)
+  for_each  = var.depot_v1_enabled ? toset(local.st_secret_fields) : toset([])
   project   = var.project_id
   secret_id = "${var.slug}-servicetitan-${each.value}"
   replication {
@@ -81,6 +82,17 @@ resource "google_secret_manager_secret_iam_member" "depot_v2_relay_reader" {
   for_each  = local.v2 == 1 ? toset(["client-secret"]) : toset([])
   project   = var.project_id
   secret_id = google_secret_manager_secret.depot_v2[each.key].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.depot.email}"
+}
+
+# v2 only: the v2 bootstrap deploys the relay, and mounts RELAY_SECRET from Secret Manager
+# instead of writing it into the service's environment as depot_bootstrap.sh does. depot-sa
+# reads it at start-up, so it needs this one secret.
+resource "google_secret_manager_secret_iam_member" "depot_v2_relay_secret_reader" {
+  count     = local.v2_only
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.relay.secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.depot.email}"
 }
