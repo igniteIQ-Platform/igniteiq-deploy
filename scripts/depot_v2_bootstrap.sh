@@ -177,8 +177,11 @@ V2_ENV="DEPOT_V2_INTERNAL_URL=http://${ILB_IP}:8080,DEPOT_V2_CLIENT_SECRET_FILE=
 V2_SECRETS="/secrets/client-secret=depot-v2-client-secret-${SLUG}:latest"
 
 if gcloud run services describe depot-relay --project="${PROJECT_ID}" --region="${REGION}" --format='value(name)' >/dev/null 2>&1; then
-  # Beside the running Depot: depot_bootstrap.sh deployed it, so only ADD the v2 settings.
+  # Beside the running Depot: depot_bootstrap.sh deployed it, so ADD the v2 settings and set
+  # the image. A relay built before v2 routing sends v2 paths to the running Depot, which
+  # answers 200 with HTML (ENG-1119); RELAY_IMAGE is the copy connector_push just refreshed.
   gcloud run services update depot-relay --project="${PROJECT_ID}" --region="${REGION}" \
+    --image="${RELAY_IMAGE}" \
     --update-env-vars="${V2_ENV}" --update-secrets="${V2_SECRETS}" --quiet >/dev/null
 elif [[ "${DEPLOY_RELAY:-0}" == "1" ]]; then
   # v2 only: nothing deployed it. The flags are depot_bootstrap.sh's, with RELAY_SECRET
@@ -200,12 +203,29 @@ RELAY_URL="$(gcloud run services describe depot-relay --project="${PROJECT_ID}" 
 [[ -n "${RELAY_URL}" ]] || die "the relay has no URL"
 log "relay ${RELAY_URL}"
 
+RESP="$(mktemp)"
+trap 'rm -f "${VALUES}" "${IMAGES}" "${RESP}"; if [[ -n "${PF_PID}" ]]; then kill "${PF_PID}" 2>/dev/null || true; fi' EXIT
+
+# Check the relay reaches the engine before registering it. A 200 alone proves nothing: a
+# relay without v2 routing answers a v2 path with 200 and HTML (ENG-1119), so the check is
+# on the content type. Retried, since a fresh revision has been seen to fail once on its
+# first requests. The relay secret is piped as a header, never passed as an argument.
+log "checking the relay forwards to Depot v2"
+PROBE=""
+for _ in 1 2 3 4 5 6; do
+  PROBE="$(secret "${RELAY_SECRET_NAME}" | sed 's/^/x-relay-secret: /' \
+    | curl -s -o "${RESP}" -w '%{http_code} %{content_type}' --max-time 60 -X POST \
+        "${RELAY_URL}/ingestion.v1.IngestionService/ListConnections" \
+        -H @- -H 'Content-Type: application/json' --data '{}' || echo 000)"
+  [[ "${PROBE}" == "200 application/json"* ]] && break
+  sleep 10
+done
+[[ "${PROBE}" == "200 application/json"* ]] || die "the relay does not forward to Depot v2 (got ${PROBE}); is its image older than v2 routing?"
+
 # Register the engine. The body carries the installed chart version, which seeds the
 # operator's rollout row and must be a release IgniteIQ published (422 otherwise). The
 # relay secret is piped, never passed as an argument.
 log "registering Depot v2 with IgniteIQ"
-RESP="$(mktemp)"
-trap 'rm -f "${VALUES}" "${IMAGES}" "${RESP}"; if [[ -n "${PF_PID}" ]]; then kill "${PF_PID}" 2>/dev/null || true; fi' EXIT
 CODE="$(secret "${RELAY_SECRET_NAME}" \
   | python3 -c 'import sys,json; print(json.dumps({"orgId":sys.argv[1],"engine":"V2","relayUrl":sys.argv[2],"relaySecret":sys.stdin.read(),"chartVersion":sys.argv[3]}))' \
       "${ORG_ID}" "${RELAY_URL}" "${CHART_VERSION}" \
