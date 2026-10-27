@@ -23,6 +23,28 @@ resource "google_secret_manager_secret_iam_member" "st_depot_reader" {
   member    = "serviceAccount:${google_service_account.depot.email}"
 }
 
+# Sage Intacct credential secret SHELLS, the same write-only path as the
+# ServiceTitan shells above: empty here, populated in Studio → Connect Sage
+# Intacct. Off unless intacct_enabled, so an existing tenant's apply adds nothing.
+
+resource "google_secret_manager_secret" "intacct" {
+  for_each  = var.intacct_enabled ? toset(local.intacct_secret_fields) : toset([])
+  project   = var.project_id
+  secret_id = "${var.slug}-intacct-${each.value}"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.enabled]
+}
+
+resource "google_secret_manager_secret_iam_member" "intacct_depot_reader" {
+  for_each  = google_secret_manager_secret.intacct
+  project   = var.project_id
+  secret_id = each.value.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.depot.email}"
+}
+
 # ── Relay signing secret (X-Relay-Secret) ────────────────────────────────────
 # The relay proxies Platform → Depot status requests. Deployed in bootstrap
 # (it needs the internal LB address, created post-Helm); the secret is here.

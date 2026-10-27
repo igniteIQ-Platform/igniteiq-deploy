@@ -22,6 +22,10 @@ locals {
   # Studio → Connect ServiceTitan; this module only creates the empty shells).
   st_secret_fields = ["client-id", "client-secret", "app-key", "tenant-id"]
 
+  # Sage Intacct credential secret shells, same convention (<slug>-<kind>-<field>),
+  # created only when var.intacct_enabled. Values are written in Studio.
+  intacct_secret_fields = ["sender-id", "sender-password", "company-id", "ws-user-id", "ws-user-password", "entity-id"]
+
   # BigQuery datasets the pipeline reads/writes.
   bq_datasets = [
     "depot_raw",      # landed source data

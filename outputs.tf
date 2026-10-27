@@ -23,6 +23,11 @@ output "servicetitan_secret_shells" {
   description = "Empty ServiceTitan credential secrets — populated later, self-serve, in Studio."
 }
 
+output "intacct_secret_shells" {
+  value       = [for s in google_secret_manager_secret.intacct : s.secret_id]
+  description = "Empty Sage Intacct credential secrets — populated later, self-serve, in Studio. Empty unless intacct_enabled."
+}
+
 # The relay URL / workspace ID / client creds are produced by the runtime
 # bootstrap and reported to IgniteIQ via the infra-ready callback; they are not
 # Terraform-managed outputs (they originate inside the cluster at apply time).

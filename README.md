@@ -17,6 +17,7 @@ Tracked as **ENG-252** (self-serve onboarding project).
 - `depot-connectors` Artifact Registry repo (IgniteIQ pushes the pinned image in)
 - BigQuery datasets: `depot_raw`, `depot_internal`, `forge_staging`, `forge_intermediate`, `ontology`
 - ServiceTitan credential **secret shells** (values written later, self-serve, in Studio)
+- Sage Intacct credential **secret shells**, only with `intacct_enabled = true` (see below)
 - IgniteIQ data-plane grants: `forge-runner` (transform), `vault-sa` (read) — least-privilege, dataset-scoped
 - Write-only secret path for Studio credential vaulting (`secretVersionAdder`)
 - Depot ingestion runtime + connector registration + BigQuery destination + relay
@@ -48,6 +49,33 @@ console. See the "boundary P" note in the design doc.
 full chain (module → connector-push → GKE + Cloud SQL bootstrap → infra-ready)
 passed in the ENG-258 sandbox validation (2026-07-13). The three ordering traps
 (PSA→SQL, WI-binding→cluster, auth-off→register→auth-on) are handled.
+
+## Sage Intacct credential secrets
+
+Studio's **Connect Sage Intacct** writes the credentials into six secrets in your
+project, `<slug>-intacct-<field>` for `sender-id`, `sender-password`,
+`company-id`, `ws-user-id`, `ws-user-password` and `entity-id`. IgniteIQ can add
+a version to a secret but cannot create one, so the empty secrets must exist
+first. `depot-sa` is granted `roles/secretmanager.secretAccessor` on each, to read
+the values at sync time. No secret value is ever written by either path below.
+
+**Project managed by this Terraform:** set `intacct_enabled = true` in
+`terraform.tfvars` and apply. It is `false` by default, so re-applying without it
+changes nothing. The `intacct_secret_shells` output lists the secret ids.
+
+**Project set up by hand (no Terraform state):** run the standalone script in your
+own Cloud Shell, as an account that can create secrets and set their IAM policy:
+
+```bash
+bash scripts/create_intacct_secret_shells.sh <project-id> <slug> depot-sa@<project-id>.iam.gserviceaccount.com
+```
+
+It creates only the secrets that are missing, grants `secretAccessor` to the depot
+service account only, and prints each action and a summary. It never deletes or
+overwrites a secret and never adds a version, so it is safe to re-run.
+
+To check a project afterwards, pass the flag to the parity check:
+`python3 scripts/check_provision_parity.py --project <project-id> --slug <slug> --enable intacct_enabled`.
 
 ## Launch it (normally the Studio wizard drives this)
 The wizard shows a **"Deploy to Google Cloud"** button — a Cloud Shell deep link

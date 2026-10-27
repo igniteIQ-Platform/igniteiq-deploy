@@ -129,6 +129,13 @@ variable "depot_v1_enabled" {
   description = "Install the first-generation ingestion runtime. Set false only on a NEW project that runs Depot v2 alone. ⚠️ Turning it off where v1 is installed is not a supported teardown: it removes v1's database and identity binding from Terraform but leaves the runtime in the cluster."
 }
 
+# ── Optional source credential shells ───────────────────────────────────────────
+variable "intacct_enabled" {
+  type        = bool
+  default     = false
+  description = "Create the empty Sage Intacct credential secrets that Studio's Connect Sage Intacct writes into, and let depot-sa read them. Additive; false creates nothing."
+}
+
 # ── Depot v2, ENG-1021 — off by default ──────────────────────────────────────────
 variable "depot_v2_enabled" {
   type        = bool
