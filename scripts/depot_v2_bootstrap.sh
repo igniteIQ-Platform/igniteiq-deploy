@@ -238,12 +238,13 @@ done
 [[ "${PROBE}" == "200 application/json"* ]] || die "the relay does not forward to Depot v2 (got ${PROBE}); is its image older than v2 routing?"
 
 # Register the engine. The body carries the installed chart version, which seeds the
-# operator's rollout row and must be a release IgniteIQ published (422 otherwise). The
-# relay secret is piped, never passed as an argument.
+# operator's rollout row and must be a release IgniteIQ published (422 otherwise), and the
+# region the chart's registry is in, where a rollout from the platform copies the next one.
+# The relay secret is piped, never passed as an argument.
 log "registering Depot v2 with IgniteIQ"
 CODE="$(secret "${RELAY_SECRET_NAME}" \
-  | python3 -c 'import sys,json; print(json.dumps({"orgId":sys.argv[1],"engine":"V2","relayUrl":sys.argv[2],"relaySecret":sys.stdin.read(),"chartVersion":sys.argv[3]}))' \
-      "${ORG_ID}" "${RELAY_URL}" "${VERSION}" \
+  | python3 -c 'import sys,json; print(json.dumps({"orgId":sys.argv[1],"engine":"V2","relayUrl":sys.argv[2],"relaySecret":sys.stdin.read(),"chartVersion":sys.argv[3],"region":sys.argv[4]}))' \
+      "${ORG_ID}" "${RELAY_URL}" "${VERSION}" "${REGION}" \
   | curl -s -o "${RESP}" -w '%{http_code}' --max-time 60 -X POST "${CALLBACK_BASE_URL}/api/onboarding/infra-ready" \
       -H "Authorization: Bearer ${PROVISIONING_TOKEN}" -H 'Content-Type: application/json' --data @- || echo 000)"
 [[ "${CODE}" == "200" ]] || die "infra-ready returned HTTP ${CODE}: $(cat "${RESP}")"
