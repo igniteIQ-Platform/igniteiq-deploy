@@ -44,8 +44,10 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -78,22 +80,13 @@ def _attr(body: str, name: str) -> str | None:
     return m.group(1).strip() if m else None
 
 
-def _bool_var_default(src: str, name: str) -> bool:
-    """variable "x" { default = true|false } -> that bool; absent -> False."""
-    for vname, body in _hcl_bodies(src.replace('resource "', 'resource "x" "').replace("variable ", 'resource "variable" '), "variable"):
-        if vname.strip('"') == name:
-            return (_attr(body, "default") or "false").strip() == "true"
-    return False
-
-
 # The Depot v2 resources ride in the same files, gated on depot_v2_enabled: a
 # `count = local.v2` or a `for_each` that branches on `var.depot_v2_enabled` (ENG-1021). With
 # the flag off, Terraform creates none of them, so the spec must derive none of them — else
 # every tenant reads as missing a set of grants and secrets it was never meant to have.
-# Off is the only state this check models: it reads variable DEFAULTS, not a tenant's
-# tfvars, so the first tenant to flip the flag also needs this check taught to derive the
-# v2 set (its secrets ride local.v2_secrets, not the ServiceTitan fields) — until then it
-# would under- and mis-derive for that tenant, and the self-test says so.
+# It reads variable DEFAULTS, not a tenant's tfvars; --enable and --disable set a bool flag the
+# way that tenant's tfvars do. A `count = local.x` is evaluated from locals.tf, and a for_each
+# resolves its own key set, so v1-only, v1+v2 and v2-only each derive their own shape.
 _V2_GATES = ("local.v2", "var.depot_v2_enabled")
 
 
@@ -146,8 +139,25 @@ def _var_list_defaults(src: str) -> dict[str, list[str]]:
     return out
 
 
+def _bool_var_defaults(src: str) -> dict[str, bool]:
+    """Every `variable "x" { type = bool ... default = true|false }` -> {x: bool}."""
+    out: dict[str, bool] = {}
+    for m in re.finditer(r'variable\s+"([^"]+)"\s*\{', src):
+        i, depth = m.end(), 1
+        while i < len(src) and depth:
+            if src[i] == "{":
+                depth += 1
+            elif src[i] == "}":
+                depth -= 1
+            i += 1
+        body = src[m.end() : i - 1]
+        if (_attr(body, "type") or "") == "bool":
+            out[m.group(1)] = (_attr(body, "default") or "false") == "true"
+    return out
+
+
 def _list_local(src: str, name: str) -> list[str]:
-    m = re.search(rf'{re.escape(name)}\s*=\s*\[(.*?)\]', src, re.S)
+    m = re.search(rf'(?<![\w.]){re.escape(name)}\s*=\s*\[(.*?)\]', src, re.S)
     if not m:
         return []
     return re.findall(r'"([^"]+)"', m.group(1))
@@ -156,17 +166,31 @@ def _list_local(src: str, name: str) -> list[str]:
 class Spec:
     """The declared shape of a provisioned project, read out of the .tf files."""
 
-    def __init__(self, project: str, slug: str, root: Path = REPO) -> None:
+    def __init__(
+        self,
+        project: str,
+        slug: str,
+        root: Path = REPO,
+        enable: tuple[str, ...] = (),
+        disable: tuple[str, ...] = (),
+    ) -> None:
         iam = (root / "iam.tf").read_text()
         secrets = (root / "secrets.tf").read_text()
         variables = (root / "variables.tf").read_text()
         locals_ = (root / "locals.tf").read_text()
 
         self.project, self.slug = project, slug
-        self.v2_enabled = _bool_var_default(variables, "depot_v2_enabled")
+        self.locals_src = locals_
+        # Variable DEFAULTS, then the bool flags a tenant's tfvars set (--enable / --disable).
+        self.flags = _bool_var_defaults(variables)
+        for names, value, opt in ((enable, True, "--enable"), (disable, False, "--disable")):
+            for name in names:
+                if name not in self.flags:
+                    raise RuntimeError(f"{opt} {name}: no bool variable of that name in variables.tf")
+                self.flags[name] = value
+        self.v2_enabled = self.flags.get("depot_v2_enabled", False)
         self.vars = _var_defaults(variables)
         self.var_lists = _var_list_defaults(variables)
-        self.st_fields = _list_local(locals_, "st_secret_fields")
         self.sa_emails = {
             n: f"{_attr(b, 'account_id').strip(chr(34))}@{project}.iam.gserviceaccount.com"
             for n, b in _hcl_bodies(iam, "google_service_account")
@@ -192,33 +216,134 @@ class Spec:
                 for one in self._expand(body, member):
                     self.dataset_iam.add((name, self._resolve(role), one))
 
-        self.secrets: set[str] = set()
-        self.secret_iam: set[tuple[str, str, str]] = set()
-        for _, body in _hcl_bodies(secrets, "google_secret_manager_secret"):
+        # Each secret resource resolves its OWN for_each. Expanding every `each.value` with one
+        # resource's field list derives wrong ids for every other for_each'd secret, and still
+        # passes: the ids it invents are as well-formed as the real ones.
+        self.secret_ids: dict[str, dict[str, str]] = {}  # resource name -> {each.key: secret_id}
+        for name, body in _hcl_bodies(secrets, "google_secret_manager_secret"):
             if self._off(body):
+                self.secret_ids[name] = {}
                 continue
             sid = _attr(body, "secret_id")
             if not sid:
                 continue
-            if "each.value" in sid:
-                for f in self.st_fields:
-                    self.secrets.add(self._resolve(sid).replace("${each.value}", f))
+            keys = self._for_each_keys(body)
+            if keys is None:
+                if "each." in sid:
+                    raise RuntimeError(f"google_secret_manager_secret.{name} uses each.* with no for_each")
+                self.secret_ids[name] = {"": self._resolve(sid)}
             else:
-                self.secrets.add(self._resolve(sid))
-        for _, body in _hcl_bodies(secrets, "google_secret_manager_secret_iam_member"):
+                self.secret_ids[name] = {
+                    k: self._resolve(sid.replace("${each.value}", k).replace("${each.key}", k)) for k in keys
+                }
+        self.secrets: set[str] = {s for ids in self.secret_ids.values() for s in ids.values()}
+
+        self.secret_iam: set[tuple[str, str, str]] = set()
+        for name, body in _hcl_bodies(secrets, "google_secret_manager_secret_iam_member"):
             if self._off(body):
                 continue
             role, member = _attr(body, "role"), _attr(body, "member")
             if not (role and member):
                 continue
-            # for_each over the ST secrets -> one grant per shell
-            targets = sorted(s for s in self.secrets if "-servicetitan-" in s) if "each.value" in (_attr(body, "secret_id") or "") else sorted(self.secrets)
-            for t in targets:
+            for t in self._secret_targets(name, body):
                 self.secret_iam.add((t, self._resolve(role), self._resolve(member)))
 
     def _off(self, body: str) -> bool:
-        """A Depot v2 resource while depot_v2_enabled is false: not provisioned, so not expected."""
+        """Not provisioned under these flags, so not expected.
+
+        A `count = local.x` is evaluated: matching on the name alone read `local.v2_only` as
+        `local.v2`, and expected the v2-only relay grant on every tenant running v1 and v2 side by side.
+        """
+        count = _attr(body, "count")
+        if count:
+            m = re.fullmatch(r"local\.(\w+)", count)
+            if not m:
+                raise RuntimeError(f"cannot evaluate `count = {count}`; teach Spec._off about it")
+            return not self._local_flag(m.group(1))
         return _v2_gated(body) and not self.v2_enabled
+
+    # Anything below that it cannot read RAISES. A for_each it guesses at derives a plausible
+    # spec, and a plausible wrong spec is the failure this file exists to prevent.
+
+    def _for_each_keys(self, body: str) -> list[str] | None:
+        """The keys a resource's for_each yields; None when it has no for_each.
+
+        Understands `<flag> ? <set> : toset([])` and the sets _set_values reads.
+        """
+        fe = _attr(body, "for_each")
+        if not fe:
+            return None
+        m = re.fullmatch(r"(.+?)\s*\?\s*(.+?)\s*:\s*toset\(\[\]\)", fe)
+        if m:
+            if not self._truthy(m.group(1)):
+                return []
+            fe = m.group(2)
+        return self._set_values(fe)
+
+    def _truthy(self, cond: str) -> bool:
+        cond = cond.strip()
+        m = re.fullmatch(r"var\.(\w+)", cond)
+        if m and m.group(1) in self.flags:
+            return self.flags[m.group(1)]
+        m = re.fullmatch(r"local\.(\w+)\s*==\s*1", cond)
+        if m:
+            return self._local_flag(m.group(1))
+        raise RuntimeError(f"cannot evaluate for_each condition `{cond}`; teach Spec._truthy about it")
+
+    def _local_flag(self, name: str) -> bool:
+        """locals.tf `name = <cond> ? 1 : 0`, where <cond> is `[!]var.flag` terms joined by `&&`."""
+        d = re.search(rf"(?m)^\s*{re.escape(name)}\s*=\s*(.+?)\s*\?\s*1\s*:\s*0\s*(#.*)?$", self.locals_src)
+        if not d:
+            raise RuntimeError(f"local.{name} is not a `<cond> ? 1 : 0` flag in locals.tf; teach Spec._local_flag about it")
+        result = True
+        for term in d.group(1).split("&&"):
+            t = re.fullmatch(r"(!?)\s*var\.(\w+)", term.strip())
+            if not (t and t.group(2) in self.flags):
+                raise RuntimeError(f"cannot evaluate `{term.strip()}` in local.{name}; teach Spec._local_flag about it")
+            result = result and (self.flags[t.group(2)] != bool(t.group(1)))
+        return result
+
+    def _set_values(self, expr: str) -> list[str]:
+        expr = expr.strip()
+        m = re.fullmatch(r"toset\(local\.(\w+)\)", expr)
+        if m:
+            vals = _list_local(self.locals_src, m.group(1))
+            if vals:
+                return vals
+        m = re.fullmatch(r"toset\(\[(.*)\]\)", expr)
+        if m and m.group(1).strip():
+            return re.findall(r'"([^"]+)"', m.group(1))
+        m = re.fullmatch(r"var\.(\w+)", expr)
+        if m and self.var_lists.get(m.group(1)):
+            return self.var_lists[m.group(1)]
+        raise RuntimeError(f"cannot resolve for_each `{expr}` to a list of values; teach Spec._set_values about it")
+
+    def _secret_targets(self, name: str, body: str) -> list[str]:
+        """The secret ids one google_secret_manager_secret_iam_member resource binds."""
+        sid = (_attr(body, "secret_id") or "").strip()
+        fe = (_attr(body, "for_each") or "").strip()
+        m = re.fullmatch(r"google_secret_manager_secret\.(\w+)", fe)
+        if m and sid == "each.value.secret_id":
+            return sorted(self._secret_ids_of(m.group(1), name).values())
+        m = re.fullmatch(r"google_secret_manager_secret\.(\w+)\[each\.key\]\.secret_id", sid)
+        if m:
+            ids = self._secret_ids_of(m.group(1), name)
+            keys = self._for_each_keys(body)
+            if keys is None or any(k not in ids for k in keys):
+                raise RuntimeError(f"{name}: keys {keys} are not instances of google_secret_manager_secret.{m.group(1)}")
+            return sorted(ids[k] for k in keys)
+        m = re.fullmatch(r"google_secret_manager_secret\.(\w+)\.secret_id", sid)
+        if m:
+            return sorted(self._secret_ids_of(m.group(1), name).values())
+        if sid.startswith('"') and "each." not in sid and not fe:
+            return [self._resolve(sid)]
+        raise RuntimeError(f"cannot resolve the secrets google_secret_manager_secret_iam_member.{name} binds "
+                           f"(for_each `{fe}`, secret_id `{sid}`); teach Spec._secret_targets about it")
+
+    def _secret_ids_of(self, secret: str, member: str) -> dict[str, str]:
+        if secret not in self.secret_ids:
+            raise RuntimeError(f"{member} refers to google_secret_manager_secret.{secret}, which secrets.tf does not declare")
+        return self.secret_ids[secret]
 
     def _expand(self, body: str, raw: str) -> list[str]:
         """One member, or N of them when the resource is for_each'd over a variable set.
@@ -477,6 +602,63 @@ def self_test() -> int:
     if "${" in json.dumps([sorted(spec.project_iam), sorted(spec.secrets), sorted(spec.dataset_iam)]):
         problems.append("unresolved terraform interpolation left in the derived spec")
 
+    # Each for_each'd secret resolves its OWN key set. Before, every `each.value` id was
+    # expanded with the ServiceTitan fields and every for_each'd grant was filtered to
+    # "-servicetitan-" or else bound to every secret. With Depot v2 on, that derived
+    # depot-v2-app-key-<slug> and friends (ServiceTitan field names, v2 prefix), missed three of
+    # the four real v2 secrets, and expected depot-sa to read all of them. It still passed.
+    depot_sa = "serviceAccount:depot-sa@acme-igniteiq-data.iam.gserviceaccount.com"
+    accessor = "roles/secretmanager.secretAccessor"
+    st_iam = {(s, accessor, depot_sa) for s in st}
+    relay = "depot-relay-secret-acme"
+    v2_ids = {f"depot-v2-{k}-acme" for k in _list_local(spec.locals_src, "v2_secrets")}
+    v2_reader = ("depot-v2-client-secret-acme", accessor, depot_sa)
+    relay_reader = (relay, accessor, depot_sa)
+    if {t for t in spec.secret_iam if "-servicetitan-" in t[0]} != st_iam or len(st_iam) != 4:
+        problems.append("depot-sa secretAccessor not derived on exactly the 4 ST shells")
+    if len(v2_ids) < 2:
+        problems.append(f"local.v2_secrets read as {sorted(v2_ids)}; the v2 assertions below would prove nothing")
+
+    # The three supported modes (variables.tf): v1 only (the default), v1 + v2, v2 only.
+    both = Spec("acme-igniteiq-data", "acme", enable=("depot_v2_enabled",))
+    v2only = Spec("acme-igniteiq-data", "acme", enable=("depot_v2_enabled",), disable=("depot_v1_enabled",))
+    for label, s, want_secrets, want_iam in (
+        ("v1 + v2", both, set(st) | {relay} | v2_ids, st_iam | {v2_reader}),
+        ("v2 only", v2only, {relay} | v2_ids, {v2_reader, relay_reader}),
+    ):
+        if s.secrets != want_secrets:
+            problems.append(f"{label}: secrets derived {sorted(s.secrets)}, expected {sorted(want_secrets)}")
+        if s.secret_iam != want_iam:
+            problems.append(f"{label}: secret IAM derived {sorted(s.secret_iam)}, expected {sorted(want_iam)}")
+        if "${" in json.dumps([sorted(s.project_iam), sorted(s.secrets), sorted(s.secret_iam), sorted(s.dataset_iam)]):
+            problems.append(f"{label}: unresolved terraform interpolation left in the derived spec")
+    if not spec.project_iam < both.project_iam:
+        problems.append("v1 + v2: the v2 project grants were not added on top of the v1 set")
+
+    # Fail closed: a gate or for_each it cannot follow must raise, not derive a smaller spec.
+    for label, old, new, flags in (
+        ("unknown secret resource", "for_each  = google_secret_manager_secret.st",
+         "for_each  = google_secret_manager_secret.nonexistent", {}),
+        ("unknown field local", "toset(local.st_secret_fields)", "toset(local.nonexistent_fields)", {}),
+        ("unknown count local", "count     = local.v2_only", "count     = local.nonexistent",
+         {"enable": ("depot_v2_enabled",)}),
+        ("count that is not a local", "count     = local.v2_only", "count     = length(var.igniteiq_vault_sas)",
+         {"enable": ("depot_v2_enabled",)}),
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            for f in ("iam.tf", "secrets.tf", "variables.tf", "locals.tf"):
+                shutil.copy(REPO / f, tmp)
+            sec = Path(tmp, "secrets.tf")
+            if old not in sec.read_text():
+                problems.append(f"fail-closed fixture is stale ({label}): `{old}` is no longer in secrets.tf")
+                continue
+            sec.write_text(sec.read_text().replace(old, new))
+            try:
+                Spec("acme-igniteiq-data", "acme", root=Path(tmp), **flags)
+                problems.append(f"fail-closed: {label} derived a spec instead of raising")
+            except RuntimeError:
+                pass
+
     # Negative test: drop one expectation and confirm the comparison would flag it.
     planted = ("roles/bigquery.jobUser", "serviceAccount:1020933832935-compute@developer.gserviceaccount.com")
     if planted not in spec.project_iam:
@@ -489,7 +671,8 @@ def self_test() -> int:
         return 1
 
     print(f"self-test PASS — derived {len(spec.project_iam)} project IAM, {len(spec.dataset_iam)} dataset IAM, "
-          f"{len(spec.secrets)} secrets, {len(spec.secret_iam)} secret IAM from the .tf files, all five Eco gaps covered.")
+          f"{len(spec.secrets)} secrets, {len(spec.secret_iam)} secret IAM from the .tf files, all five Eco gaps covered; "
+          f"v1 + v2 derives {len(both.secrets)} secrets, v2 only {len(v2only.secrets)}.")
     return 0
 
 
@@ -523,6 +706,10 @@ def main() -> int:
     ap.add_argument("--project")
     ap.add_argument("--slug")
     ap.add_argument("--impersonate", default="customer-deployer@igniteiq-dev.iam.gserviceaccount.com")
+    ap.add_argument("--enable", action="append", default=[], metavar="VAR",
+                    help="a bool variable this tenant's tfvars set to true, e.g. --enable depot_v2_enabled")
+    ap.add_argument("--disable", action="append", default=[], metavar="VAR",
+                    help="a bool variable this tenant's tfvars set to false, e.g. --disable depot_v1_enabled")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()
 
@@ -531,7 +718,7 @@ def main() -> int:
     if not (a.project and a.slug):
         ap.error("--project and --slug are required (or use --self-test)")
 
-    spec = Spec(a.project, a.slug)
+    spec = Spec(a.project, a.slug, enable=tuple(a.enable), disable=tuple(a.disable))
     print(f"Comparing {a.project} (slug={a.slug}) against the terraform declaration in {REPO.name}/\n")
     all_failures = compare(spec, a.impersonate or None)
     failures, accepted = _split_accepted(all_failures, a.project)
