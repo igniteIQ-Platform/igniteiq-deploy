@@ -195,6 +195,12 @@ class Spec:
             n: f"{_attr(b, 'account_id').strip(chr(34))}@{project}.iam.gserviceaccount.com"
             for n, b in _hcl_bodies(iam, "google_service_account")
         }
+        # A custom role's `.id` is projects/<project>/roles/<role_id>, which is how the live
+        # policy names it. Unresolved, the bare reference reads as a grant that is missing.
+        self.custom_roles = {
+            n: f"projects/{project}/roles/{_attr(b, 'role_id').strip(chr(34))}"
+            for n, b in _hcl_bodies(iam, "google_project_iam_custom_role")
+        }
 
         self.project_iam: set[tuple[str, str]] = set()
         for _, body in _hcl_bodies(iam, "google_project_iam_member"):
@@ -372,6 +378,8 @@ class Spec:
             v = v.replace(f"${{var.{name}}}", val)
         for name, email in self.sa_emails.items():
             v = v.replace(f"${{google_service_account.{name}.email}}", email)
+        for name, role in self.custom_roles.items():
+            v = re.sub(rf"^google_project_iam_custom_role\.{re.escape(name)}(\[0\])?\.id$", role, v)
         return v
 
 
@@ -557,6 +565,13 @@ def compare(spec: Spec, imp: str | None) -> list[str]:
 
 # ── self-test: a checker nobody has watched fail is not evidence ───────────────────
 
+def _unresolved(spec: Spec) -> list[str]:
+    """Derived values still holding a terraform expression. `${` alone misses a bare reference
+    such as `google_project_iam_custom_role.x[0].id`, which no live policy will ever contain."""
+    vals = [v for row in (*spec.project_iam, *spec.dataset_iam, *spec.secret_iam) for v in row] + sorted(spec.secrets)
+    return sorted({v for v in vals if "${" in v or re.search(r"\b(google_\w+|var|local|each)\.\w", v)})
+
+
 def self_test() -> int:
     """Parse the real .tf files, then assert the comparison catches a planted omission."""
     spec = Spec("acme-igniteiq-data", "acme")
@@ -599,8 +614,8 @@ def self_test() -> int:
     if "depot-v2" in derived or "depotV2" in derived or "depot_v2" in derived:
         problems.append("derived a Depot v2 grant or secret while depot_v2_enabled is false (ENG-1021 gate)")
 
-    if "${" in json.dumps([sorted(spec.project_iam), sorted(spec.secrets), sorted(spec.dataset_iam)]):
-        problems.append("unresolved terraform interpolation left in the derived spec")
+    if _unresolved(spec):
+        problems.append(f"unresolved terraform reference left in the derived spec: {_unresolved(spec)}")
 
     # Each for_each'd secret resolves its OWN key set. Before, every `each.value` id was
     # expanded with the ServiceTitan fields and every for_each'd grant was filtered to
@@ -630,8 +645,8 @@ def self_test() -> int:
             problems.append(f"{label}: secrets derived {sorted(s.secrets)}, expected {sorted(want_secrets)}")
         if s.secret_iam != want_iam:
             problems.append(f"{label}: secret IAM derived {sorted(s.secret_iam)}, expected {sorted(want_iam)}")
-        if "${" in json.dumps([sorted(s.project_iam), sorted(s.secrets), sorted(s.secret_iam), sorted(s.dataset_iam)]):
-            problems.append(f"{label}: unresolved terraform interpolation left in the derived spec")
+        if _unresolved(s):
+            problems.append(f"{label}: unresolved terraform reference left in the derived spec: {_unresolved(s)}")
     if not spec.project_iam < both.project_iam:
         problems.append("v1 + v2: the v2 project grants were not added on top of the v1 set")
 
