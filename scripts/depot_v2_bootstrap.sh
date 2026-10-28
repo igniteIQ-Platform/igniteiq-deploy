@@ -81,10 +81,25 @@ ingest:
 YAML
 fi
 
+# With an operator, IgniteIQ moves the chart's version after install, so the running release
+# may be newer than depot_v2_chart_version. A re-apply then upgrades at the RUNNING version: the
+# values below still apply, and the version never goes back. The operator refuses downgrades
+# for the same reason a re-apply must not make one: the engine's migrations only move forward.
+# A depot_v2_chart_version newer than the running one still upgrades, as before (ENG-1169).
+VERSION="${CHART_VERSION}"
+if [[ -n "${OPERATOR_CHART_VERSION:-}" ]]; then
+  RUNNING="$(helm list -n "${NAMESPACE}" --filter '^depot-v2$' -o json \
+    | python3 -c 'import sys,json; r=json.load(sys.stdin); print(r[0]["chart"].rsplit("-",1)[1] if r else "")')"
+  if [[ -n "${RUNNING}" ]] && python3 -c 'import sys; v=[tuple(map(int,s.split("."))) for s in sys.argv[1:]]; sys.exit(0 if v[0]<v[1] else 1)' "${CHART_VERSION}" "${RUNNING}"; then
+    log "chart ${RUNNING} is running, newer than depot_v2_chart_version ${CHART_VERSION}; keeping ${RUNNING}"
+    VERSION="${RUNNING}"
+  fi
+fi
+
 # No --wait: database migrations run as a post-install hook, and Helm already
 # waits for that hook to finish.
-log "installing chart ${CHART_VERSION}"
-helm upgrade --install depot-v2 "${CHART_OCI_REF}" --version "${CHART_VERSION}" \
+log "installing chart ${VERSION}"
+helm upgrade --install depot-v2 "${CHART_OCI_REF}" --version "${VERSION}" \
   -n "${NAMESPACE}" -f "${VALUES}" -f "${IMAGES}" --timeout 15m
 kubectl rollout status deployment/depot-v2-server -n "${NAMESPACE}" --timeout=10m
 
@@ -228,7 +243,7 @@ done
 log "registering Depot v2 with IgniteIQ"
 CODE="$(secret "${RELAY_SECRET_NAME}" \
   | python3 -c 'import sys,json; print(json.dumps({"orgId":sys.argv[1],"engine":"V2","relayUrl":sys.argv[2],"relaySecret":sys.stdin.read(),"chartVersion":sys.argv[3]}))' \
-      "${ORG_ID}" "${RELAY_URL}" "${CHART_VERSION}" \
+      "${ORG_ID}" "${RELAY_URL}" "${VERSION}" \
   | curl -s -o "${RESP}" -w '%{http_code}' --max-time 60 -X POST "${CALLBACK_BASE_URL}/api/onboarding/infra-ready" \
       -H "Authorization: Bearer ${PROVISIONING_TOKEN}" -H 'Content-Type: application/json' --data @- || echo 000)"
 [[ "${CODE}" == "200" ]] || die "infra-ready returned HTTP ${CODE}: $(cat "${RESP}")"

@@ -144,8 +144,8 @@ variable "depot_v2_chart_name" {
 
 variable "depot_v2_chart_version" {
   type        = string
-  default     = "0.2.0"
-  description = "Depot v2 ingestion chart version the bootstrap installs. After install the operator applies the version the IgniteIQ platform holds for this tenant; a re-apply with a new value here re-runs the bootstrap."
+  default     = "0.3.0"
+  description = "Depot v2 ingestion chart version the bootstrap installs. After install the operator applies the version the IgniteIQ platform holds for this tenant, without an apply. A re-apply never moves the chart back: when the running version is newer than this value, the bootstrap keeps it. Raise this only for a release that needs an apply."
 }
 
 variable "depot_v2_engine_image_repo" {
@@ -162,13 +162,13 @@ variable "depot_operator_chart_name" {
 
 variable "depot_operator_chart_version" {
   type        = string
-  default     = ""
+  default     = "0.1.0"
   description = "Depot operator chart version to install beside Depot v2. Empty installs no operator: the engine runs, and nothing in this project can change its version until one is set."
 }
 
 variable "depot_operator_image_digest" {
   type        = string
-  default     = ""
+  default     = "sha256:c5a51c65fb6da3d4d8abaac790e471dd3d1fe3866f9391bc3e623c883e93c87d"
   description = "sha256 digest of the operator image in this project's depot-connectors repository, pinned so the running operator is exactly the one IgniteIQ published. Required when depot_operator_chart_version is set."
 }
 
