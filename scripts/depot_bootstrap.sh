@@ -49,6 +49,11 @@ gcloud auth print-access-token \
 # Config values live under global.* (external Cloud SQL config database; the
 # password comes from the in-cluster secret created above). The workload SA is
 # pre-created (serviceAccount.create=false) with its Workload Identity binding.
+# The doc-store image, pinned by DIGEST. Built by igniteiq-depot/images/depot-docstore
+# (MinIO's own server AND client binaries, both checksum-gated) and copied into each
+# tenant's own registry. Every tenant must carry this exact digest -- see ENG-1235.
+DOCSTORE_DIGEST="sha256:dea8b9e224a245177ccf6d8cc4d35191ff7cd3598ba82c9d0135bd7e892a9b6d"
+
 cat >/tmp/depot-values.yaml <<YAML
 global:
   auth:
@@ -92,19 +97,30 @@ ingest:
     # ⚠️ Do NOT reach for `global.image.registry` instead. It repoints ALL ELEVEN images the
     # chart builds (airbyte/*, temporalio/*, …), of which only minio is mirrored today, so it
     # turns one broken pull into ten. Mirroring the rest is the end state, not this change.
-    image:
-      repository: ${REGION}-docker.pkg.dev/${PROJECT_ID}/depot-connectors/minio/minio
-      tag: RELEASE.2023-11-20T22-40-07Z
+    # 🔴 PINNED BY DIGEST, NOT TAG (ENG-1235). The tag is mutable and this pod's
+    # imagePullPolicy is IfNotPresent, so a node that already holds the tag NEVER re-pulls:
+    # overwriting the tag in the registry does not reach the cluster. Measured on reynolds
+    # 2026-11-04 -- the registry served the fixed image and the hook pod still resolved to
+    # the old sha256:14d3d880 out of node cache, failing identically to before.
+    # A digest reference cannot be stale, and a tenant that was never given this exact image
+    # fails LOUDLY on pull rather than silently running something else.
+    # imageUrl passes a STRING through verbatim (_images.tpl:10), which is why this is a
+    # string and not repository/tag. Helm warns "cannot overwrite table with non table"; the
+    # override still wins -- verified with `helm template`.
+    image: "${REGION}-docker.pkg.dev/${PROJECT_ID}/depot-connectors/minio/minio@${DOCSTORE_DIGEST}"
 YAML
 
 # 🔴 ENG-828 preflight. The doc-store image must already be in this project's repo; the
 # publisher puts it there alongside the connector and the chart (connector_push.sh). Without
 # it the install does not fail — it hangs in `helm --wait` for 20 minutes and then times out
 # with ImagePullBackOff, which reads as a cluster problem and is not one. Fail here instead.
+# 🔴 Assert the DIGEST, not merely that something exists under the tag. The old check
+# passed on every tenant while six carried six DIFFERENT images for one tag, which is how a
+# 20-minute hang reached a customer looking like a cluster fault (ENG-1235).
 if ! gcloud artifacts docker images describe \
-      "${REGION}-docker.pkg.dev/${PROJECT_ID}/depot-connectors/minio/minio:RELEASE.2023-11-20T22-40-07Z" \
+      "${REGION}-docker.pkg.dev/${PROJECT_ID}/depot-connectors/minio/minio@${DOCSTORE_DIGEST}" \
       --project="${PROJECT_ID}" >/dev/null 2>&1; then
-  echo "[depot_bootstrap] FATAL: the doc-store image is not in ${PROJECT_ID}'s depot-connectors repo." >&2
+  echo "[depot_bootstrap] FATAL: ${DOCSTORE_DIGEST} is not in ${PROJECT_ID}'s depot-connectors repo." >&2
   echo "[depot_bootstrap] MinIO no longer publishes it, so there is no public fallback (ENG-828)." >&2
   echo "[depot_bootstrap] Ask IgniteIQ to publish it, then re-run. Decision: igniteiq-docs decisions/open/0043." >&2
   exit 1
