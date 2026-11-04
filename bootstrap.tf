@@ -139,7 +139,7 @@ resource "null_resource" "depot_v2_bootstrap" {
       SQL_PRIVATE_IP    = google_sql_database_instance.depot.private_ip_address
       SQL_ROOT_SECRET   = google_secret_manager_secret.depot_sql_root.secret_id
       SECRET_PREFIX     = local.v2_secret_prefix
-      BQ_LOCATION       = google_bigquery_dataset.depot_raw_v2[0].location # the sink's location must equal the dataset's
+      BQ_LOCATION       = local.bq_location # the sink writes into the dataset the Platform names; this is only its location
       CHART_OCI_REF     = "oci://${var.region}-docker.pkg.dev/${var.project_id}/${local.connector_repo}/${var.depot_v2_chart_name}"
       CHART_VERSION     = var.depot_v2_chart_version
       # The operator (decision 0045, option C). Empty OPERATOR_CHART_VERSION installs none.
@@ -171,7 +171,6 @@ resource "null_resource" "depot_v2_bootstrap" {
     google_secret_manager_secret_version.depot_v2,
     google_secret_manager_secret_iam_member.depot_v2_relay_reader,
     google_sql_database.depot_v2,
-    google_bigquery_dataset.depot_raw_v2,
     google_service_account_iam_member.depot_operator_wi,
     google_artifact_registry_repository_iam_member.depot_operator_chart_reader,
   ]

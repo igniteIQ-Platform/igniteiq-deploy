@@ -22,6 +22,10 @@ locals {
   # Studio → Connect ServiceTitan; this module only creates the empty shells).
   st_secret_fields = ["client-id", "client-secret", "app-key", "tenant-id"]
 
+  # BigQuery location for every dataset in this project. BigQuery's multi-region is "US",
+  # not the compute region, so us-central1 maps across; anything else is taken literally.
+  bq_location = var.region == "us-central1" ? "US" : var.region
+
   # BigQuery datasets the pipeline reads/writes.
   bq_datasets = [
     "depot_raw",      # landed source data
