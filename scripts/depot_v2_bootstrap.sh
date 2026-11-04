@@ -195,8 +195,12 @@ if gcloud run services describe depot-relay --project="${PROJECT_ID}" --region="
   # Beside the running Depot: depot_bootstrap.sh deployed it, so ADD the v2 settings and set
   # the image. A relay built before v2 routing sends v2 paths to the running Depot, which
   # answers 200 with HTML (ENG-1119); RELAY_IMAGE is the copy connector_push just refreshed.
+  # 🔴 --service-account here too: a relay deployed without one runs as the default compute SA,
+  # which cannot read the v2 secret mounted below, and the update fails (ENG-739, ENG-1233).
+  # Idempotent where the relay already runs as ${DEPOT_SA}; corrects it where it does not.
   gcloud run services update depot-relay --project="${PROJECT_ID}" --region="${REGION}" \
     --image="${RELAY_IMAGE}" \
+    --service-account="${DEPOT_SA}" \
     --update-env-vars="${V2_ENV}" --update-secrets="${V2_SECRETS}" --quiet >/dev/null
 elif [[ "${DEPLOY_RELAY:-0}" == "1" ]]; then
   # v2 only: nothing deployed it. The flags are depot_bootstrap.sh's, with RELAY_SECRET
