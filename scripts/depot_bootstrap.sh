@@ -84,7 +84,7 @@ ingest:
     # 🔴 ENG-828. MinIO ended free distribution of this image. docker.io dropped the tag
     # 2026-09-15 and quay.io followed by 2026-10-01, so BOTH public sources now 401 and there
     # is no third one. A fresh cluster pointed at either sits in ImagePullBackOff and
-    # `helm --wait` times out; two live tenants (tapps, reynolds) failed exactly that way on a
+    # `helm --wait` times out; two live tenants failed exactly that way on a
     # node rotation before being repaired 2026-10-02.
     #
     # We now pull it from THIS project's depot-connectors repo, the way the chart and the
@@ -99,7 +99,7 @@ ingest:
     # turns one broken pull into ten. Mirroring the rest is the end state, not this change.
     # 🔴 PINNED BY DIGEST, NOT TAG (ENG-1235). The tag is mutable and this pod's
     # imagePullPolicy is IfNotPresent, so a node that already holds the tag NEVER re-pulls:
-    # overwriting the tag in the registry does not reach the cluster. Measured on reynolds
+    # overwriting the tag in the registry does not reach the cluster. Measured on a live tenant
     # 2026-11-04 -- the registry served the fixed image and the hook pod still resolved to
     # the old sha256:14d3d880 out of node cache, failing identically to before.
     # A digest reference cannot be stale, and a tenant that was never given this exact image

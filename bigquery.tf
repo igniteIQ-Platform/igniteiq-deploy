@@ -9,7 +9,7 @@ resource "google_bigquery_dataset" "datasets" {
 
   # 🔴 R4. The warehouse. Today its only protection is that BigQuery refuses to drop a dataset
   # holding tables unless told to -- which a `terraform destroy` is perfectly willing to tell it.
-  # tapps alone carries 481,843 raw rows and 716,293 ontology rows, none of it reconstructable
+  # A single tenant carries hundreds of thousands of raw and ontology rows, none of it reconstructable
   # without a re-pull. prevent_destroy cannot be lifted by a variable: removing protection is a
   # commit, reviewed like any other.
   lifecycle {

@@ -50,7 +50,7 @@ resource "google_project_iam_member" "forge_job_user" {
   member   = "serviceAccount:${each.value}"
 }
 
-# Project-level dataEditor (matches the established tenants, e.g. tapps-data).
+# Project-level dataEditor (matches the established tenants).
 # dbt CREATES output datasets on the fly — the staging/intermediate/ontology
 # models plus elementary's monitoring dataset (`armory_monitor`) — which needs
 # bigquery.datasets.create. Dataset-scoped grants can't do that, so the forge
@@ -130,7 +130,7 @@ resource "google_project_iam_member" "platform_secret_version_adder" {
 
 # The Platform / Studio API reads the customer's BigQuery to power the Data
 # explorer pages (Raw / Models / Marts / Dictionary). READ-ONLY, matching the
-# established tenants (tapps-data). metadataViewer lets it list tables/lineage
+# established tenants. metadataViewer lets it list tables/lineage
 # without reading rows; dataViewer + jobUser let it run the listing queries.
 # Without these the Studio "Raw Tables" page 403s ("no bigquery.jobs.create").
 resource "google_project_iam_member" "platform_bq_job_user" {

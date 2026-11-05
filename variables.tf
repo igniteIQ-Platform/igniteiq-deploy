@@ -209,15 +209,14 @@ variable "igniteiq_auditor_sa" {
 # as a REPLACEMENT -- which rotates the password on a running database, or writes a secret
 # version nothing has read.
 #
-# Measured on tapps, 2026-10-22, the first tenant imported rather than built:
-#   depot-sql-root-password    24 chars WITH specials   (harness said special = false)
-#   depot-relay-secret-tapps   64 chars WITH specials   (harness said 48, special = false)
-# Both were made by hand in July. Overriding these two in tapps' tfvars takes its plan from
+# Measured 2026-10-22 on the first tenant imported rather than built: both its SQL root
+# password and its relay secret had been made by hand, longer than the defaults and WITH
+# specials (the defaults are special = false). Overriding these two in that tenant's tfvars took its plan from
 # "4 to destroy" to "0 to destroy" without touching the live credentials.
 #
-# ⚠️ DEFAULTS ARE THE FLEET'S CURRENT SHAPE AND MUST NOT DRIFT TO SUIT ONE TENANT. airworks,
-# caddies and airtemp had theirs generated to exactly these values; changing a default here
-# would propose rotating all three on their next apply.
+# ⚠️ DEFAULTS ARE THE FLEET'S CURRENT SHAPE AND MUST NOT DRIFT TO SUIT ONE TENANT. Several
+# tenants had theirs generated to exactly these values; changing a default here would
+# propose rotating every one of them on its next apply.
 #
 # 🔴 A plan that replaces random_password.depot_sql_root is a STOP, not a diff: it changes
 # the live root password, nothing reads it back, and deletion_protection now rules out

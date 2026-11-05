@@ -72,7 +72,7 @@ resource "google_secret_manager_secret_version" "depot_v2" {
   # the key set unknown until apply, which `terraform plan` tolerates by deferring and
   # `terraform import` cannot: import evaluates the whole configuration up front, so with
   # depot_v2_enabled = true EVERY import in the root failed with "Invalid for_each argument",
-  # whatever resource was being imported. Found on the first Tapps import, 2026-10-22.
+  # whatever resource was being imported. Found on the first tenant import, 2026-10-22.
   #
   # Terraform's own advice in that error: "define the map keys statically in your
   # configuration and place apply-time results only in the map values." local.v2_secrets is

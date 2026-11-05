@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Does this customer project actually look like a provisioned project?
 
-    scripts/check_provision_parity.py --project eco-igniteiq-data --slug eco
+    scripts/check_provision_parity.py --project <project-id> --slug <slug>
     scripts/check_provision_parity.py --self-test
 
-ENG-433. Eco Home Services was deployed white-glove on 2026-08-04 and FIVE separate
+ENG-433. A tenant was deployed white-glove on 2026-08-04 and FIVE separate
 provisioning steps were missed, every one of which this terraform declares correctly:
 
     1. depot-sa's ST-secret secretAccessor grants          (secrets.tf st_depot_reader)
@@ -22,7 +22,7 @@ WHY THIS COMPARES AGAINST TERRAFORM, NOT AGAINST ANOTHER TENANT.
 
 Diffing a new project against a known-good tenant is what found gaps 3 and 4, and it is a
 good instinct — but it inherits that tenant's mistakes. Proof from the same day: vault-sa was
-granted PROJECT-level bigquery.dataViewer on Eco because Reynolds has it, while this module
+granted PROJECT-level bigquery.dataViewer on one tenant because another has it, while this module
 grants it DATASET-scoped on `ontology` only. Both tenants are wider than the specification, so
 no tenant-to-tenant diff could ever have shown it. The terraform is the specification; a
 reference tenant is only a copy of one.
@@ -32,7 +32,7 @@ AND WHY IT PARSES THE .tf FILES RATHER THAN LISTING WHAT TO CHECK.
 A hand-written list of expected grants would share the blind spot of the thing it checks — add
 a resource to iam.tf and the list silently stops covering it. That is
 [[a_guard_with_a_hand_list_guards_nothing]], and it is the specific reason a subset IAM diff
-(three ingestion SAs) declared parity on Eco while gap 4 survived to 403 a customer. So the
+(three ingestion SAs) declared parity on that tenant while gap 4 survived to 403 a customer. So the
 expectations are DERIVED: add a google_project_iam_member to iam.tf and this check covers it
 on the next run, with no edit here.
 
@@ -255,7 +255,7 @@ class Spec:
 def _gcloud(args: list[str], impersonate: str | None) -> str:
     """Run gcloud, never interactively.
 
-    ⚠️ `--quiet` and a closed stdin are load-bearing, not tidiness. On redwood,
+    ⚠️ `--quiet` and a closed stdin are load-bearing, not tidiness. On one tenant,
     `gcloud secrets list` found Secret Manager disabled and asked
     "Would you like to enable and retry (y/N)?", then waited on stdin forever — the check
     hung instead of reporting. A gate that hangs is worse than one that fails: a red run gets
@@ -384,7 +384,7 @@ def compare(spec: Spec, imp: str | None) -> list[str]:
         # add, the other is an identity that cannot see the resource. Collapsing them would
         # either invent a missing grant or, worse, let an unreadable resource pass silently.
         # (`customer-deployer` holds no dataset access on tenants it did not provision, so
-        # this fires for tapps/redwood/jolly/airworks — run those as an IgniteIQ principal.)
+        # this fires for tenants it did not build — run those as an IgniteIQ principal.)
         try:
             have_ds = live_dataset_iam(p, ds, imp)
         except RuntimeError as e:
@@ -398,7 +398,7 @@ def compare(spec: Spec, imp: str | None) -> list[str]:
             failures.append(f"dataset IAM missing: {ds}: {role} -> {member}")
         # ⚠️ Wider-than-spec is a finding too. A dataset-scoped grant in the module that is
         # held project-wide in reality is a least-privilege regression, and it is invisible to
-        # any tenant-to-tenant diff when both tenants share it (measured: eco AND reynolds).
+        # any tenant-to-tenant diff when both tenants share it (measured on two tenants).
         if (role, member) in have_iam:
             failures.append(
                 f"WIDER THAN SPEC: {member} holds {role} at PROJECT level, but the module grants it "
@@ -489,7 +489,7 @@ def self_test() -> int:
         return 1
 
     print(f"self-test PASS — derived {len(spec.project_iam)} project IAM, {len(spec.dataset_iam)} dataset IAM, "
-          f"{len(spec.secrets)} secrets, {len(spec.secret_iam)} secret IAM from the .tf files, all five Eco gaps covered.")
+          f"{len(spec.secrets)} secrets, {len(spec.secret_iam)} secret IAM from the .tf files, all five ENG-433 gaps covered.")
     return 0
 
 
