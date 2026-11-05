@@ -126,57 +126,85 @@ if ! gcloud artifacts docker images describe \
   exit 1
 fi
 
-log "installing Depot ingestion runtime (auth off)"
-helm upgrade --install depot "${CHART_OCI_REF}" \
-  --version "${CHART_VERSION}" -n "${NAMESPACE}" -f /tmp/depot-values.yaml --wait --timeout 20m
+# ── ENG-263: never turn auth OFF on a tenant that already has it ON ─────────
+# This script is deliberately two-phase: install with auth off, register the
+# connector over a port-forward, then flip auth on. That is correct for a
+# GREENFIELD install, where there is nothing yet to protect.
+#
+# 🔴 On a LIVE tenant it is not. Phase 1's `helm upgrade` sets
+# global.auth.enabled=false, so ANY failure before phase 2 leaves the customer's
+# ingestion plane unauthenticated. This is not hypothetical: on 2026-11-04 the
+# create-bucket hook hung on a missing /bin/mc (ENG-1235), helm's 20m timeout
+# fired, the script died BETWEEN the phases, and that tenant's Airbyte served
+# ~29 minutes with authentication off.
+#
+# The auth-off window exists only so the connector can be registered. A tenant
+# that already has auth on already has its connector definition and BigQuery
+# destination — both steps below are explicitly idempotent and would find
+# nothing to do. So skip the phase outright and go straight to the auth-ON
+# upgrade, which still applies any chart or values change.
+#
+# Greenfield is unaffected: with no release installed, `helm get values` fails
+# and this reads false, so the original path runs unchanged.
+AUTH_ALREADY_ON="$(helm get values depot -n "${NAMESPACE}" -a -o json 2>/dev/null \
+  | python3 -c 'import sys,json;d=json.load(sys.stdin) or {};print("true" if ((d.get("global") or {}).get("auth") or {}).get("enabled") is True else "false")' 2>/dev/null || true)"
+[ "${AUTH_ALREADY_ON}" = "true" ] || AUTH_ALREADY_ON="false"
 
-# ── Register the connector (auth off) via a port-forward ─────────────────────
-log "registering connector"
-# Find the ingestion server service by label (avoids hardcoding a resource name).
-SERVER_SVC="$(kubectl get svc -n "${NAMESPACE}" -l app.kubernetes.io/name=server -o jsonpath='{.items[0].metadata.name}')"
-kubectl port-forward -n "${NAMESPACE}" "svc/${SERVER_SVC}" 8001:8001 >/tmp/pf.log 2>&1 &
-PF_PID=$!
-trap 'kill ${PF_PID} 2>/dev/null || true' EXIT
-sleep 6
-
-WORKSPACE_ID="$(curl -s http://localhost:8001/api/public/v1/workspaces \
-  | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"][0]["workspaceId"])')"
-log "workspace ${WORKSPACE_ID}"
-
-# Idempotent: reuse the existing custom definition for this image if already
-# registered (this whole script re-runs on any terraform re-apply).
-DEF_REPO="${CONNECTOR_IMAGE%:*}"
-SOURCE_DEF_ID="$(curl -s -X POST http://localhost:8001/api/v1/source_definitions/list_for_workspace \
-  -H 'Content-Type: application/json' -d "{\"workspaceId\":\"${WORKSPACE_ID}\"}" \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); print(next((x['sourceDefinitionId'] for x in d.get('sourceDefinitions',[]) if x.get('dockerRepository')=='${DEF_REPO}'), ''))")"
-if [ -z "${SOURCE_DEF_ID}" ]; then
-  SOURCE_DEF_ID="$(curl -s -X POST http://localhost:8001/api/v1/source_definitions/create_custom \
-    -H 'Content-Type: application/json' --max-time 200 \
-    -d "{\"workspaceId\":\"${WORKSPACE_ID}\",\"sourceDefinition\":{\"name\":\"ServiceTitan\",\"dockerRepository\":\"${DEF_REPO}\",\"dockerImageTag\":\"${CONNECTOR_IMAGE##*:}\",\"documentationUrl\":\"https://igniteiq.com\"}}" \
-    | python3 -c 'import sys,json;print(json.load(sys.stdin)["sourceDefinitionId"])')"
-  log "connector registered (${SOURCE_DEF_ID})"
+if [ "${AUTH_ALREADY_ON}" = "true" ]; then
+  log "auth is already ON — skipping the auth-off phase (ENG-263); connector and destination are already registered"
 else
-  log "connector already registered (${SOURCE_DEF_ID}) — reusing"
+  log "installing Depot ingestion runtime (auth off)"
+  helm upgrade --install depot "${CHART_OCI_REF}" \
+    --version "${CHART_VERSION}" -n "${NAMESPACE}" -f /tmp/depot-values.yaml --wait --timeout 20m
+
+  # ── Register the connector (auth off) via a port-forward ─────────────────────
+  log "registering connector"
+  # Find the ingestion server service by label (avoids hardcoding a resource name).
+  SERVER_SVC="$(kubectl get svc -n "${NAMESPACE}" -l app.kubernetes.io/name=server -o jsonpath='{.items[0].metadata.name}')"
+  kubectl port-forward -n "${NAMESPACE}" "svc/${SERVER_SVC}" 8001:8001 >/tmp/pf.log 2>&1 &
+  PF_PID=$!
+  trap 'kill ${PF_PID} 2>/dev/null || true' EXIT
+  sleep 6
+
+  WORKSPACE_ID="$(curl -s http://localhost:8001/api/public/v1/workspaces \
+    | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"][0]["workspaceId"])')"
+  log "workspace ${WORKSPACE_ID}"
+
+  # Idempotent: reuse the existing custom definition for this image if already
+  # registered (this whole script re-runs on any terraform re-apply).
+  DEF_REPO="${CONNECTOR_IMAGE%:*}"
+  SOURCE_DEF_ID="$(curl -s -X POST http://localhost:8001/api/v1/source_definitions/list_for_workspace \
+    -H 'Content-Type: application/json' -d "{\"workspaceId\":\"${WORKSPACE_ID}\"}" \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(next((x['sourceDefinitionId'] for x in d.get('sourceDefinitions',[]) if x.get('dockerRepository')=='${DEF_REPO}'), ''))")"
+  if [ -z "${SOURCE_DEF_ID}" ]; then
+    SOURCE_DEF_ID="$(curl -s -X POST http://localhost:8001/api/v1/source_definitions/create_custom \
+      -H 'Content-Type: application/json' --max-time 200 \
+      -d "{\"workspaceId\":\"${WORKSPACE_ID}\",\"sourceDefinition\":{\"name\":\"ServiceTitan\",\"dockerRepository\":\"${DEF_REPO}\",\"dockerImageTag\":\"${CONNECTOR_IMAGE##*:}\",\"documentationUrl\":\"https://igniteiq.com\"}}" \
+      | python3 -c 'import sys,json;print(json.load(sys.stdin)["sourceDefinitionId"])')"
+    log "connector registered (${SOURCE_DEF_ID})"
+  else
+    log "connector already registered (${SOURCE_DEF_ID}) — reusing"
+  fi
+
+  # BigQuery destination — ADC via Workload Identity (no credentials_json); raw
+  # working set lands in depot_internal, not the vendor default. Idempotent.
+  if curl -s -X POST http://localhost:8001/api/v1/destinations/list -H 'Content-Type: application/json' \
+      -d "{\"workspaceId\":\"${WORKSPACE_ID}\"}" \
+      | python3 -c "import sys,json; sys.exit(0 if any(x.get('name')=='BigQuery' for x in json.load(sys.stdin).get('destinations',[])) else 1)"; then
+    log "BigQuery destination already exists — skipping"
+  else
+    curl -s -X POST http://localhost:8001/api/v1/destinations/create -H 'Content-Type: application/json' \
+      -d "{\"workspaceId\":\"${WORKSPACE_ID}\",\"name\":\"BigQuery\",\"destinationDefinitionId\":\"22f6c74f-5699-40ff-833c-4a879ea40133\",\"connectionConfiguration\":{\"project_id\":\"${PROJECT_ID}\",\"dataset_id\":\"${RAW_DATASET}\",\"dataset_location\":\"US\",\"raw_data_dataset\":\"${INTERNAL_DATASET}\",\"loading_method\":{\"method\":\"Standard\"}}}" >/dev/null
+    log "BigQuery destination created"
+  fi
+
+  kill ${PF_PID} 2>/dev/null || true
+  trap - EXIT
+
+  # NOTE: the ServiceTitan SOURCE and the sync CONNECTION are created later,
+  # self-serve, in Studio → Connect ServiceTitan (ENG-205). The runtime here is
+  # left ready with the connector definition + destination in place.
 fi
-
-# BigQuery destination — ADC via Workload Identity (no credentials_json); raw
-# working set lands in depot_internal, not the vendor default. Idempotent.
-if curl -s -X POST http://localhost:8001/api/v1/destinations/list -H 'Content-Type: application/json' \
-    -d "{\"workspaceId\":\"${WORKSPACE_ID}\"}" \
-    | python3 -c "import sys,json; sys.exit(0 if any(x.get('name')=='BigQuery' for x in json.load(sys.stdin).get('destinations',[])) else 1)"; then
-  log "BigQuery destination already exists — skipping"
-else
-  curl -s -X POST http://localhost:8001/api/v1/destinations/create -H 'Content-Type: application/json' \
-    -d "{\"workspaceId\":\"${WORKSPACE_ID}\",\"name\":\"BigQuery\",\"destinationDefinitionId\":\"22f6c74f-5699-40ff-833c-4a879ea40133\",\"connectionConfiguration\":{\"project_id\":\"${PROJECT_ID}\",\"dataset_id\":\"${RAW_DATASET}\",\"dataset_location\":\"US\",\"raw_data_dataset\":\"${INTERNAL_DATASET}\",\"loading_method\":{\"method\":\"Standard\"}}}" >/dev/null
-  log "BigQuery destination created"
-fi
-
-kill ${PF_PID} 2>/dev/null || true
-trap - EXIT
-
-# NOTE: the ServiceTitan SOURCE and the sync CONNECTION are created later,
-# self-serve, in Studio → Connect ServiceTitan (ENG-205). The runtime here is
-# left ready with the connector definition + destination in place.
 
 # ── Helm: flip auth ON (relay token flow needs it) ───────────────────────────
 ADMIN_PW="$(python3 -c 'import secrets;print(secrets.token_urlsafe(24))')"
