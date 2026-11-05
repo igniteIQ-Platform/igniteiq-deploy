@@ -1,8 +1,8 @@
 # Tenant posture auditor — a project-level custom role granted to IgniteIQ's read-only
 # audit identity, tenant-auditor@igniteiq-dev.iam.gserviceaccount.com (ENG-433).
 #
-# WHY IT EXISTS. We could not verify Jolly's access configuration at all: no identity we hold
-# could read its IAM policy. Jolly self-provisioned, so that is the sovereignty model working
+# WHY IT EXISTS. We could not verify a self-provisioned customer's access configuration at all:
+# no identity we hold could read its IAM policy. That is the sovereignty model working
 # as intended rather than a bug — but it means the one tenant we did not build is the one we
 # cannot audit, and the gap recurs for every future self-serve customer.
 #
@@ -14,8 +14,8 @@
 # That number stalls a security review even when every one of them is harmless. Nine explicit
 # permissions can be read and approved in a single screen.
 #
-# WHAT IT CANNOT DO, verified twice — against redwood-igniteiq-data on 2026-08-04, and again
-# against a real CUSTOMER project (ignite-iq / Jolly) on 2026-08-05 once they granted it, with
+# WHAT IT CANNOT DO, verified twice — against an internal tenant project on 2026-08-04, and again
+# against a real CUSTOMER project on 2026-08-05 once they granted it, with
 # this exact role bound to that exact identity, all three checks in the same minute:
 #
 #   list secret NAMES        -> 200   (permitted, and the point)
@@ -37,7 +37,7 @@ title: "Tenant posture auditor"
 description: "Read-only. Verifies that this project's access configuration still matches what IgniteIQ deployed. Cannot read project data, cannot read secret payloads, cannot modify anything."
 stage: GA
 includedPermissions:
-  # Read the IAM policy — the one permission whose absence blocked auditing Jolly entirely.
+  # Read the IAM policy — the one permission whose absence blocked auditing that customer entirely.
   - resourcemanager.projects.get
   - resourcemanager.projects.getIamPolicy
   # Read effective organization policy, so posture is reportable rather than assumed.
@@ -49,7 +49,7 @@ includedPermissions:
   # A secret's ACCESS LIST — who may read it — never its contents. Same relationship as
   # bigquery.datasets.get below: metadata about the resource, not the resource.
   #
-  # ADDED 2026-08-05, after granting on Jolly proved eight was not enough. The parity check
+  # ADDED 2026-08-05, after granting on that customer proved eight was not enough. The parity check
   # returned 4 UNVERIFIABLE there because it could not confirm depot-sa holds
   # secretAccessor on the four ServiceTitan secrets — the one thing about secrets it needs
   # to check. Its absence was an oversight, not a deliberate exclusion.

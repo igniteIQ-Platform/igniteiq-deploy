@@ -43,8 +43,8 @@ resource "google_sql_database_instance" "depot" {
     # 🔴 R4. This database was declared "reconstructable" and is not, any more. Under the
     # Depot v2 engine it holds every connection definition AND every sync cursor, so losing
     # it means a full ServiceTitan re-pull for that tenant -- which ENG-959 turned from a
-    # slow afternoon into a question for counsel. Measured 2026-10-22: tapps runs with
-    # backups OFF.
+    # slow afternoon into a question for counsel. Measured 2026-10-22: a live tenant was
+    # running with backups OFF.
     #
     # 09:00 UTC is deliberate: business-hours refreshes fire on the hour 15:00-23:00 UTC,
     # so the window sits clear of every scheduled sync.

@@ -1,7 +1,7 @@
 # ── Read-only posture auditor (ENG-433) ──────────────────────────────────────
 # A custom role plus one binding, so every tenant is auditable from provision time.
 #
-# The gap this closes: Jolly self-provisioned, and no identity we hold could read its IAM
+# The gap this closes: a customer self-provisioned, and no identity we hold could read its IAM
 # policy — so the one tenant we did not build by hand is the only one whose access
 # configuration we cannot verify. That is the sovereignty model working as designed, not a
 # defect, which is exactly why the fix belongs in the module rather than in a support runbook:
@@ -15,7 +15,7 @@
 # Permission rationale and the verification evidence live in
 # roles/tenant_posture_auditor.yaml — including the tested claims (secret names 200, secret
 # payload 403, data query 403) measured against a real project, and re-verified on the
-# customer's own project when Jolly granted it on 2026-08-05.
+# customer's own project when the customer granted it on 2026-08-05.
 
 resource "google_project_iam_custom_role" "tenant_posture_auditor" {
   project     = var.project_id
