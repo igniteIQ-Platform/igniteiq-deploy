@@ -146,9 +146,32 @@ fi
 #
 # Greenfield is unaffected: with no release installed, `helm get values` fails
 # and this reads false, so the original path runs unchanged.
-AUTH_ALREADY_ON="$(helm get values depot -n "${NAMESPACE}" -a -o json 2>/dev/null \
-  | python3 -c 'import sys,json;d=json.load(sys.stdin) or {};print("true" if ((d.get("global") or {}).get("auth") or {}).get("enabled") is True else "false")' 2>/dev/null || true)"
-[ "${AUTH_ALREADY_ON}" = "true" ] || AUTH_ALREADY_ON="false"
+# 🔴 FAIL CLOSED. An earlier revision of this check collapsed every failure to
+# "false", so a transient `helm get values` error on a tenant that HAS auth on
+# would take the auth-off path — reintroducing the exact hazard this guard
+# exists to remove. "I could not tell" must never mean "assume it is off".
+#
+# Only ONE case may take the auth-off path: no release installed at all, which
+# is genuinely greenfield and has nothing to protect. A release that exists but
+# cannot be read is an abort, not an assumption.
+if helm status depot -n "${NAMESPACE}" >/dev/null 2>&1; then
+  AUTH_VALUES="$(helm get values depot -n "${NAMESPACE}" -a -o json 2>/dev/null || true)"
+  if [ -z "${AUTH_VALUES}" ]; then
+    echo "[depot_bootstrap] FATAL: a 'depot' release exists in ${NAMESPACE} but its values could not be read." >&2
+    echo "[depot_bootstrap] Refusing to continue: proceeding would disable this tenant's Airbyte auth (ENG-263)." >&2
+    exit 1
+  fi
+  AUTH_ALREADY_ON="$(printf '%s' "${AUTH_VALUES}" \
+    | python3 -c 'import sys,json;d=json.load(sys.stdin) or {};print("true" if ((d.get("global") or {}).get("auth") or {}).get("enabled") is True else "false")' 2>/dev/null || true)"
+  if [ "${AUTH_ALREADY_ON}" != "true" ] && [ "${AUTH_ALREADY_ON}" != "false" ]; then
+    echo "[depot_bootstrap] FATAL: could not parse global.auth.enabled from the 'depot' release values." >&2
+    echo "[depot_bootstrap] Refusing to continue rather than guess (ENG-263)." >&2
+    exit 1
+  fi
+else
+  # No release: a genuine first install. Nothing to protect, so phase 1 runs.
+  AUTH_ALREADY_ON="false"
+fi
 
 if [ "${AUTH_ALREADY_ON}" = "true" ]; then
   log "auth is already ON — skipping the auth-off phase (ENG-263); connector and destination are already registered"
@@ -278,6 +301,35 @@ RELAY_URL="$(gcloud run services describe depot-relay --project="${PROJECT_ID}" 
 log "relay ${RELAY_URL}"
 
 # ── infra-ready callback ─────────────────────────────────────────────────────
+# 🔴 WORKSPACE_ID is assigned inside the auth-off phase, which the ENG-263 guard
+# may have skipped. The callback below needs it, and `set -u` would abort here —
+# after auth was already restored, so not a security failure, but the apply dies
+# and IgniteIQ never learns the relay is up. Fetch it now, authenticated with the
+# client credentials the chart just published.
+if [ -z "${WORKSPACE_ID:-}" ]; then
+  log "fetching workspace id (auth-on path)"
+  WS_SVC="$(kubectl get svc -n "${NAMESPACE}" -l app.kubernetes.io/name=server -o jsonpath='{.items[0].metadata.name}')"
+  kubectl port-forward -n "${NAMESPACE}" "svc/${WS_SVC}" 8001:8001 >/tmp/pf-ws.log 2>&1 &
+  WS_PF_PID=$!
+  trap 'kill ${WS_PF_PID} 2>/dev/null || true' EXIT
+  sleep 6
+  WS_TOKEN="$(curl -s -X POST http://localhost:8001/api/v1/applications/token \
+    -H 'Content-Type: application/json' \
+    -d "{\"client_id\":\"${CLIENT_ID}\",\"client_secret\":\"${CLIENT_SECRET}\",\"grant-type\":\"client_credentials\"}" \
+    | python3 -c 'import sys,json;print((json.load(sys.stdin) or {}).get("access_token",""))' 2>/dev/null || true)"
+  WORKSPACE_ID="$(curl -s http://localhost:8001/api/public/v1/workspaces \
+    -H "Authorization: Bearer ${WS_TOKEN}" \
+    | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"][0]["workspaceId"])' 2>/dev/null || true)"
+  kill ${WS_PF_PID} 2>/dev/null || true
+  trap - EXIT
+  if [ -z "${WORKSPACE_ID}" ]; then
+    echo "[depot_bootstrap] FATAL: could not determine the Airbyte workspace id." >&2
+    echo "[depot_bootstrap] Refusing to post an empty workspaceId, which would blank it in the Platform." >&2
+    exit 1
+  fi
+  log "workspace ${WORKSPACE_ID}"
+fi
+
 log "reporting infra-ready to IgniteIQ"
 curl -s --max-time 30 -X POST "${CALLBACK_BASE_URL}/api/onboarding/infra-ready" \
   -H "Authorization: Bearer ${PROVISIONING_TOKEN}" -H "Content-Type: application/json" \
