@@ -4,18 +4,15 @@
 
 ## ⚠️ Read first: you may not be alone in this checkout
 
-Ten repos live in one shared directory and several agent sessions run against them at once, so
-the checkout you find may not be yours. This has gone wrong twice — a commit pushed onto another
-session's branch, and a foreign uncommitted change carried for a working day — and **both times
-it looked like success.**
+This repo is often cloned beside its siblings, and several agent sessions may run against them at
+once, so the checkout you find may not be yours. This has gone wrong twice — a commit pushed onto
+another session's branch, and a foreign uncommitted change carried for a working day — and **both
+times it looked like success.**
 
 **Prefer your own worktree** if you are writing code. In a shared checkout: **stage explicit
 paths, never `git add -A`**, and **verify a push by reading `origin/<branch>`, never the local
-log.** Check before you commit:
-
-```
-python3 ~/Development/GitHub/igniteiq-docs/scripts/check_worktree_isolation.py [--fleet]
-```
+log.** IgniteIQ staff: run the shared-checkout isolation check before you commit; it ships in our
+internal docs repo.
 
 Worktrees live at `.claude/worktrees/<name>` inside the repo and are gitignored.
 
