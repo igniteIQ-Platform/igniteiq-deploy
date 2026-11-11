@@ -36,7 +36,11 @@ a resource to iam.tf and the list silently stops covering it. That is
 expectations are DERIVED: add a google_project_iam_member to iam.tf and this check covers it
 on the next run, with no edit here.
 
-Read-only. Makes no changes and needs only viewer-level access on the target project.
+Read-only. Makes no changes, and runs by default as the read-only posture auditor
+(tenant-auditor@igniteiq-dev), whose nine permissions cover every read below. It
+deliberately does NOT default to the deployer: that identity holds Owner only while a
+project is being built, so a checker anchored to it would go dark on every tenant that
+has since been stepped down to least privilege. Override with --impersonate.
 """
 
 from __future__ import annotations
@@ -383,8 +387,9 @@ def compare(spec: Spec, imp: str | None) -> list[str]:
         # established" — so both fail — but they call for different actions: one is a grant to
         # add, the other is an identity that cannot see the resource. Collapsing them would
         # either invent a missing grant or, worse, let an unreadable resource pass silently.
-        # (`customer-deployer` holds no dataset access on tenants it did not provision, so
-        # this fires for tenants it did not build — run those as an IgniteIQ principal.)
+        # (The default auditor identity reads dataset ACLs through bigquery.datasets.get,
+        # which returns metadata and the ACL and never rows. If this fires, the auditor
+        # binding is missing from the project — that is itself the finding.)
         try:
             have_ds = live_dataset_iam(p, ds, imp)
         except RuntimeError as e:
@@ -522,7 +527,13 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--project")
     ap.add_argument("--slug")
-    ap.add_argument("--impersonate", default="customer-deployer@igniteiq-dev.iam.gserviceaccount.com")
+    # The read-only posture auditor, not the deployer. Everything this check reads --
+    # project IAM, dataset ACLs, secret names, secret ACLs -- is inside the nine
+    # permissions of tenantPostureAuditor, which the module grants at provision time.
+    # The deployer's Owner is temporary by design and is meant to be revoked; a checker
+    # that defaults to it stops working on exactly the tenants that did the right thing.
+    # Verified by running both ways across every tenant: byte-identical output.
+    ap.add_argument("--impersonate", default="tenant-auditor@igniteiq-dev.iam.gserviceaccount.com")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()
 
