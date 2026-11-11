@@ -3,6 +3,15 @@
 *.tfstate.*
 .terraform.lock.hcl
 terraform.tfvars
+# ⚠️ `terraform.tfvars` does NOT match `terraform.tfvars.<tenant>-bak`. A parked copy of a
+# tenant's vars is the same secret with a suffix on it, and one sat untracked in this PUBLIC
+# repo from 2026-11-03 to 2026-11-10. Same gap shape as the `.env*` one below.
+terraform.tfvars.*
+!terraform.tfvars.example
+# Per-tenant import blocks name the customer's project, service accounts, secrets and resource
+# ids — adopting one live stack produced 48 such identifiers in a single untracked file. They
+# are one-time scaffolding, applied once and never needed again.
+imports_*.tf
 crash.log
 
 # Python bytecode — a build artifact, and this repo is PUBLIC
