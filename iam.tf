@@ -60,9 +60,9 @@ resource "google_project_iam_member" "forge_job_user" {
 # 🔴 DO NOT narrow this to a dataset-scoped grant on `ontology`. It has been
 # proposed once per environment and it cannot work, for two independent reasons:
 # dbt writes forge_staging AND forge_intermediate as well as ontology, and it
-# CREATES `dbt_test__audit` + elementary's `armory_monitor`, neither of which is
-# in local.bq_datasets — observed present on an existing project, which is proof
-# dbt created them. The architecture doc adjudicates this and calls the width
+# CREATES `dbt_test__audit` (and created elementary's `armory_monitor` until it was
+# declared in local.bq_datasets on 11-16) — observed present on an existing project,
+# which is proof dbt created them. The architecture doc adjudicates this and calls the width
 # deliberate: docs/architecture/tenant-iam-and-policy-matrix.html, "Target
 # state" → forge-runner → "Dataset-scoped grants cannot express that."
 resource "google_project_iam_member" "forge_data_editor" {
@@ -87,6 +87,18 @@ resource "google_bigquery_dataset_iam_member" "vault_ontology_viewer" {
   for_each   = var.igniteiq_vault_sas
   project    = var.project_id
   dataset_id = google_bigquery_dataset.datasets["ontology"].dataset_id
+  role       = "roles/bigquery.dataViewer"
+  member     = "serviceAccount:${each.value}"
+}
+
+# The run log behind the Data Freshness dataset (meta_pipeline_runs): when the data was last
+# refreshed. Same scope as ontology — read-only, this one dataset. Without it the Vault was
+# denied on every tenant (ENG-975). Granted by hand on all 8 live tenants 2026-11-16, so the
+# first apply finds the binding already present and changes nothing.
+resource "google_bigquery_dataset_iam_member" "vault_armory_monitor_viewer" {
+  for_each   = var.igniteiq_vault_sas
+  project    = var.project_id
+  dataset_id = google_bigquery_dataset.datasets["armory_monitor"].dataset_id
   role       = "roles/bigquery.dataViewer"
   member     = "serviceAccount:${each.value}"
 }

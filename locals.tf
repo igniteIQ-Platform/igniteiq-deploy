@@ -33,6 +33,11 @@ locals {
     "forge_staging",  # dbt staging
     "forge_intermediate",
     "ontology", # published marts/facts (Vault reads these)
+    # dbt/elementary's run log. Forge's first run used to create it, so a Vault grant on it
+    # could not be declared and the Data Freshness dataset (meta_pipeline_runs) was denied on
+    # every tenant from the 08-25 cutover to 11-16 (ENG-975). Declared here so it exists, and
+    # carries its grant, before the first Forge run. Live tenants IMPORT it, never recreate.
+    "armory_monitor",
   ]
 
   labels = {
