@@ -133,8 +133,8 @@ resource "null_resource" "depot_v2_bootstrap" {
       CLUSTER_NAME = google_container_cluster.depot.name
       NAMESPACE    = local.v2_namespace
       DEPOT_SA     = google_service_account.depot.email
-      IMAGE_REPO   = "${var.region}-docker.pkg.dev/${var.project_id}/${local.connector_repo}" # the operator image
-      # The engine images: empty pulls the chart's defaults from their public registry.
+      IMAGE_REPO   = "${var.region}-docker.pkg.dev/${var.project_id}/${local.connector_repo}" # the operator and worker images
+      # The server and control-plane images: empty pulls the chart's defaults from their public registry.
       ENGINE_IMAGE_REPO = var.depot_v2_engine_image_repo
       SQL_PRIVATE_IP    = google_sql_database_instance.depot.private_ip_address
       SQL_ROOT_SECRET   = google_secret_manager_secret.depot_sql_root.secret_id

@@ -36,7 +36,12 @@
       "",
       "The relay entry describes the hand-built copy a tier reads when depot_relay_source_tag is",
       "unset. A tier that sets it reads igniteiq-core/depot-relay at a pinned tag instead; core",
-      "has no :latest, so that is a per-tier pin, not a default this file can name."
+      "has no :latest, so that is a per-tier pin, not a default this file can name.",
+      "",
+      "The Depot v2 worker (the engine's worker plus IgniteIQ's private connector catalog) is",
+      "CI-built into igniteiq-core/depot-worker, TAGGED WITH THE depot-ingest-v2 CHART VERSION",
+      "that names it. Platform copies it beside the chart; the tenant's bootstrap points the",
+      "chart's worker image at <tenant repo>/worker_image."
     ],
     "host": "us-central1-docker.pkg.dev",
     "location": "us-central1",
@@ -46,7 +51,10 @@
     "chart_repo": "depot-charts",
     "relay_repo": "igniteiq-repo",
     "relay_image": "depot-relay",
-    "relay_tag": "latest"
+    "relay_tag": "latest",
+    "worker_project": "igniteiq-core",
+    "worker_repo": "depot-worker",
+    "worker_image": "depot-v2-worker"
   },
   "target": {
     "_": [
@@ -63,7 +71,8 @@
     ],
     "repo": "depot-connectors",
     "connector_image_name": "servicetitan",
-    "chart_name": "depot-ingest"
+    "chart_name": "depot-ingest",
+    "worker_image_name": "depot-v2-worker"
   },
   "connector": {
     "_": [

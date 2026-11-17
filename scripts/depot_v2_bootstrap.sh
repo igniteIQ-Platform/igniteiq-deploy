@@ -68,16 +68,15 @@ ingest:
         iam.gke.io/gcp-service-account: "${DEPOT_SA}"
 YAML
 
-# The engine images come from their public registry, the chart's defaults, as the running
-# Depot's runtime images do; only IgniteIQ-built artifacts (the charts, the operator, the
-# relay) are copied into this project. ENGINE_IMAGE_REPO repoints them at a mirror that
-# already holds depot-v2-{server,control-plane,worker}; nothing publishes them there today.
+# The server and control-plane images come from their public registry, the chart's defaults,
+# as the running Depot's runtime images do. ENGINE_IMAGE_REPO repoints them at a mirror that
+# already holds depot-v2-{server,control-plane}; nothing publishes them there today. The worker
+# is IgniteIQ-built and is set below, from this project's own repository.
 if [[ -n "${ENGINE_IMAGE_REPO:-}" ]]; then
   cat >"${IMAGES}" <<YAML
 ingest:
   server: { image: { repository: "${ENGINE_IMAGE_REPO}/depot-v2-server" } }
   controlPlane: { image: { repository: "${ENGINE_IMAGE_REPO}/depot-v2-control-plane" } }
-  worker: { image: { repository: "${ENGINE_IMAGE_REPO}/depot-v2-worker" } }
 YAML
 fi
 
@@ -96,11 +95,22 @@ if [[ -n "${OPERATOR_CHART_VERSION:-}" ]]; then
   fi
 fi
 
+# The worker. From chart 0.8.0 the chart names IgniteIQ's worker image (the engine's worker plus
+# a private connector catalog) at the chart's own version, and IgniteIQ copies it into this
+# project's repository beside the chart. The chart cannot know this project's path, so it is
+# set here; the operator keeps it on every later upgrade, so a new worker reaches this project
+# as a chart roll with no apply. An older chart names the public worker and gets nothing here.
+WORKER_FLOOR=0.8.0
+WORKER_ARGS=()
+if python3 -c 'import sys; v=[tuple(map(int,s.split("."))) for s in sys.argv[1:]]; sys.exit(0 if v[0]>=v[1] else 1)' "${VERSION}" "${WORKER_FLOOR}"; then
+  WORKER_ARGS=(--set "ingest.worker.image.repository=${IMAGE_REPO:?IMAGE_REPO is needed for the worker image}/depot-v2-worker")
+fi
+
 # No --wait: database migrations run as a post-install hook, and Helm already
 # waits for that hook to finish.
 log "installing chart ${VERSION}"
 helm upgrade --install depot-v2 "${CHART_OCI_REF}" --version "${VERSION}" \
-  -n "${NAMESPACE}" -f "${VALUES}" -f "${IMAGES}" --timeout 15m
+  -n "${NAMESPACE}" -f "${VALUES}" -f "${IMAGES}" ${WORKER_ARGS[@]+"${WORKER_ARGS[@]}"} --timeout 15m
 kubectl rollout status deployment/depot-v2-server -n "${NAMESPACE}" --timeout=10m
 
 # The operator: its own release in its own namespace, never part of the engine's (an

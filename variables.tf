@@ -144,14 +144,14 @@ variable "depot_v2_chart_name" {
 
 variable "depot_v2_chart_version" {
   type        = string
-  default     = "0.5.0"
-  description = "Depot v2 ingestion chart version the bootstrap installs. After install the operator applies the version the IgniteIQ platform holds for this tenant, without an apply. A re-apply never moves the chart back: when the running version is newer than this value, the bootstrap keeps it. Raise this only for a release that needs an apply. This default is the FLOOR a brand-new tenant installs at, so it must not sit on an engine with a known defect: 0.3.0 carried Filament 0.26.0, which writes ServiceTitan money, rate and hour columns as STRING and account objects as JSON (ENG-1223). 0.5.0 carries Filament 0.34.0, where those land as NUMERIC and STRING and match what Depot v1 wrote."
+  default     = "0.8.0"
+  description = "Depot v2 ingestion chart version the bootstrap installs. After install the operator applies the version the IgniteIQ platform holds for this tenant, without an apply. A re-apply never moves the chart back: when the running version is newer than this value, the bootstrap keeps it. Raise this only for a release that needs an apply. This default is the FLOOR a brand-new tenant installs at, so it must not sit on an engine with a known defect: 0.3.0 carried Filament 0.26.0, which writes ServiceTitan money, rate and hour columns as STRING and account objects as JSON (ENG-1223). 0.5.0 carries Filament 0.34.0, where those land as NUMERIC and STRING and match what Depot v1 wrote. 0.8.0 is a release that needs an apply: it is the first chart to run IgniteIQ's worker image from this project's depot-connectors repository, a path only the bootstrap can set; every later worker then arrives as a chart roll."
 }
 
 variable "depot_v2_engine_image_repo" {
   type        = string
   default     = ""
-  description = "Registry path holding depot-v2-server, depot-v2-control-plane and depot-v2-worker, to pull the Depot v2 engine from instead of its public registry. Empty (the default) uses the chart's own image paths. Set only where those images have been mirrored; nothing publishes them into depot-connectors."
+  description = "Registry path holding depot-v2-server and depot-v2-control-plane, to pull them from instead of their public registry. Empty (the default) uses the chart's own image paths. Set only where those images have been mirrored; nothing publishes them into depot-connectors. Not the worker: from chart 0.8.0 IgniteIQ copies its own worker into depot-connectors and the bootstrap points the chart there."
 }
 
 variable "depot_operator_chart_name" {
