@@ -3,6 +3,8 @@
 # at it. Must run before `terraform init` (Cloud Shell state is ephemeral).
 set -euo pipefail
 
+echo "hello world!"
+
 # Enforce the pre-flight checks here too, so a skipped Step 2 can't lead to a
 # half-provisioned run. IGNITEIQ_DEPLOY_MODE is inherited by the child, and is
 # named explicitly so it is obvious that this gate honours the same two modes:
