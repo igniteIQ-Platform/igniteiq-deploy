@@ -22,14 +22,14 @@ resource "null_resource" "connector_push" {
     command     = "${path.module}/scripts/connector_push.sh"
     interpreter = ["bash", "-c"]
     environment = {
-      CALLBACK_BASE_URL  = var.callback_base_url
-      PROVISIONING_TOKEN = var.provisioning_token
-      ORG_ID             = var.igniteiq_org_id
-      PROJECT_ID         = var.project_id
-      REGION             = var.region
-      TARGET_REPO        = local.connector_repo
-      IMAGE_NAME         = var.connector_image_name
-      IMAGE_TAG          = var.connector_image_tag
+      CALLBACK_BASE_URL = var.callback_base_url
+      TFVARS_FILE       = "${path.module}/terraform.tfvars"
+      ORG_ID            = var.igniteiq_org_id
+      PROJECT_ID        = var.project_id
+      REGION            = var.region
+      TARGET_REPO       = local.connector_repo
+      IMAGE_NAME        = var.connector_image_name
+      IMAGE_TAG         = var.connector_image_tag
       # The chart is copied in the same request — same target repo, same grant.
       CHART_NAME    = var.depot_chart_name
       CHART_VERSION = var.depot_chart_version
@@ -153,9 +153,9 @@ resource "null_resource" "depot_v2_bootstrap" {
       RELAY_IMAGE       = "${var.region}-docker.pkg.dev/${var.project_id}/${local.connector_repo}/depot-relay:latest"
       RELAY_SECRET_NAME = google_secret_manager_secret.relay.secret_id
       # Registration (infra-ready, engine V2).
-      CALLBACK_BASE_URL  = var.callback_base_url
-      PROVISIONING_TOKEN = var.provisioning_token
-      ORG_ID             = var.igniteiq_org_id
+      CALLBACK_BASE_URL = var.callback_base_url
+      TFVARS_FILE       = "${path.module}/terraform.tfvars"
+      ORG_ID            = var.igniteiq_org_id
     }
   }
 
