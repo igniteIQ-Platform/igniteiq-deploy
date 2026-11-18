@@ -3,8 +3,9 @@
 # is still worth running — it is the difference between "these are deliberate" and
 # "nobody has looked".
 #
-# No branch protection on this repo, and this does not add any: the job reports, it does
-# not gate.
+# `master` is protected and a code-owner review is required to merge. Whether these jobs are
+# also REQUIRED status checks is a repository setting, not something this file decides:
+# check it there rather than trusting a comment here.
 name: Checks
 
 on:

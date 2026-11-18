@@ -1,7 +1,6 @@
 .terraform/
 *.tfstate
 *.tfstate.*
-.terraform.lock.hcl
 terraform.tfvars
 # ⚠️ `terraform.tfvars` does NOT match `terraform.tfvars.<tenant>-bak`. A parked copy of a
 # tenant's vars is the same secret with a suffix on it, and one sat untracked in this PUBLIC

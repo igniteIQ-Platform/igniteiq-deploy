@@ -24,21 +24,10 @@ resource "google_project_iam_custom_role" "tenant_posture_auditor" {
   description = "Read-only. Verifies that this project's access configuration still matches what IgniteIQ deployed. Cannot read project data, cannot read secret payloads, cannot modify anything."
   stage       = "GA"
 
-  # Keep this list identical to roles/tenant_posture_auditor.yaml, which is the copy used for
-  # retrofitting existing tenants by hand. Two files because a custom role is only usable
-  # inside the project that defines it, so self-serve applies it via terraform and an already-
-  # live tenant needs a gcloud path.
-  permissions = [
-    "resourcemanager.projects.get",
-    "resourcemanager.projects.getIamPolicy",
-    "orgpolicy.policy.get",
-    "orgpolicy.policies.list",
-    "secretmanager.secrets.list",         # NAMES only — versions.access is deliberately absent
-    "secretmanager.secrets.getIamPolicy", # a secret's ACCESS LIST, never its contents
-    "serviceusage.services.list",
-    "iam.serviceAccounts.list",
-    "bigquery.datasets.get", # returns the dataset ACL, never rows
-  ]
+  # Read from roles/tenant_posture_auditor.yaml, which is also the file `gcloud iam roles
+  # create --file` takes to retrofit a live tenant by hand. One list, so the role this module
+  # creates and the role applied by hand cannot drift apart. Each permission is explained there.
+  permissions = yamldecode(file("${path.module}/roles/tenant_posture_auditor.yaml")).includedPermissions
 }
 
 resource "google_project_iam_member" "tenant_auditor" {

@@ -3,7 +3,6 @@
 # the instance fails to get a private IP. depends_on is set on the instance.
 
 resource "google_compute_global_address" "depot_psa" {
-  provider      = google-beta
   name          = "depot-psa"
   project       = var.project_id
   purpose       = "VPC_PEERING"

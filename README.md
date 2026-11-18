@@ -15,9 +15,14 @@ Tracked as **ENG-252** (self-serve onboarding project).
 - Depot ingestion cluster (GKE Autopilot) + `depot-sa` + Workload Identity
 - Depot config database (Cloud SQL Postgres, private IP) — preserves cursor state
 - `depot-connectors` Artifact Registry repo (IgniteIQ pushes the pinned image in)
-- BigQuery datasets: `depot_raw`, `depot_internal`, `forge_staging`, `forge_intermediate`, `ontology`
+- BigQuery datasets: `depot_raw`, `depot_internal`, `forge_staging`, `forge_intermediate`, `ontology`, `armory_monitor`
 - ServiceTitan credential **secret shells** (values written later, self-serve, in Studio)
-- IgniteIQ data-plane grants: `forge-runner` (transform), `vault-sa` (read) — least-privilege, dataset-scoped
+- IgniteIQ's standing access to your project:
+  - `forge-runner` (transform): BigQuery `dataEditor` and `jobUser` on the **project**, so it can read and change every dataset in it. Project-wide because the transform creates datasets as it runs, which a dataset-scoped grant cannot do.
+  - `vault-sa` (query): read-only on the `ontology` and `armory_monitor` datasets, plus permission to run query jobs in the project.
+  - The IgniteIQ Platform (Studio's data explorer): read-only BigQuery on the **project**, and the write-only secret path below, which is also project-wide.
+  - The publisher: write access to the `depot-connectors` repository, and nothing else.
+  - A posture auditor: reads IAM bindings, org-policy settings and the names of secrets, service accounts and enabled APIs. Never data or secret values.
 - Write-only secret path for Studio credential vaulting (`secretVersionAdder`)
 - Depot ingestion runtime + connector registration + BigQuery destination + relay
 - Two completion callbacks to IgniteIQ (connector-push pre-flight, infra-ready)

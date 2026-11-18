@@ -60,7 +60,7 @@ All three are encoded in `depends_on` or script sequence, surfaced in the ENG-25
 
 - **`backend.tf` is deliberately commented out.** State belongs in the customer's project (D3) and the bucket must exist before `terraform init`, so `bootstrap_state.sh` **rewrites the file**. Left commented so the module validates and inits locally. Not an oversight — do not "fix" it, and do not hand-edit expecting it to survive.
 - **`\s` is a GNU extension, and Cloud Shell is not your laptop.** `grep -E '^\s*project_id'` matched nothing there, so `preflight.sh` read an empty project id and reported **"no Organization"** — a confident, wrong diagnosis of the very blocker it exists to catch. Fixed in `5400c32` via `[[:space:]]`. Scripts run in the customer's shell: assume POSIX, prefer character classes.
-- ~~**There is no CI here.**~~ Fixed 2026-08-30: `checks.yml` runs `terraform fmt -check` + `validate` (with `-backend=false`, required — see below), `shellcheck -S error` over `scripts/`, the parity-check self-test, and the bare-hostname rule. **It reports; it does not gate.** A force-push and deletion guard landed 2026-09-13, but **no check is required**, so read the run rather than trusting the merge button (SOC 2 CM-05).
+- ~~**There is no CI here.**~~ Fixed 2026-08-30: `checks.yml` runs `terraform fmt -check` + `validate` (with `-backend=false`, required — see below), `shellcheck -S error` over `scripts/`, the parity-check self-test, and the bare-hostname rule. `master` is protected: no direct pushes, and a merge needs a code-owner review. Whether the checks are *required* is a repo setting — confirm it there, and read the run either way (SOC 2 CM-05).
 
 ## The parity check is the model to copy
 
@@ -85,6 +85,4 @@ An entry does **not** hide a finding — the check still prints it, marked ACCEP
 
 ## Housekeeping
 
-- `scripts/__pycache__/*.pyc` is **tracked**, and `__pycache__/` is not in `.gitignore`. A compiled artifact in a public repo should be neither.
 - `parity-exceptions.json` publishes six customer project ids, SA emails and quoted internal decisions. A disclosure question, not a style one — raise it rather than adding to it.
-- **One exception entry is stale and should be DELETED, not updated** — the abctl-VM entry, whose tenant moved to Depot-on-GKE on 2026-08-17. Its own review note says delete on ENG-281 completion; ENG-281 closed 2026-08-19.

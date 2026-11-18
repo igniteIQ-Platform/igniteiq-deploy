@@ -12,6 +12,11 @@ terraform {
       source  = "hashicorp/google"
       version = ">= 5.40, < 7.0"
     }
+    # No resource uses google-beta any more. The entry stays because every tenant applied
+    # before this change still has three resources recorded under it in state, and
+    # `terraform init` installs whatever state references: without this constraint it would
+    # fetch the newest release, outside the ceiling above. Delete it once every live tenant
+    # has applied, together with the `moved` blocks.
     google-beta = {
       source  = "hashicorp/google-beta"
       version = ">= 5.40, < 7.0"
@@ -28,11 +33,6 @@ terraform {
 }
 
 provider "google" {
-  project = var.project_id
-  region  = var.region
-}
-
-provider "google-beta" {
   project = var.project_id
   region  = var.region
 }
