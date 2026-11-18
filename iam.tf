@@ -1,7 +1,7 @@
 # ── Depot ingestion SA (in-project) — writes landed data to BigQuery ─────────
-# GKE ingestion runs as this SA via Workload Identity. No cross-project reach-in
-# identity exists: the sovereignty guarantee is that nothing writes this
-# project's raw data from outside the project.
+# GKE ingestion runs as this SA via Workload Identity. Ingestion has no cross-project
+# identity: raw data is landed by this SA, from inside the project. (Forge's project-level
+# dataEditor further down COULD write here too; that width is deliberate and argued there.)
 
 resource "google_service_account" "depot" {
   project      = var.project_id
@@ -40,8 +40,9 @@ moved {
 }
 
 # ── IgniteIQ data-plane grants (Forge transforms, Vault queries) ─────────────
-# Least-privilege, dataset-scoped where possible. These are the ONLY standing
-# IgniteIQ identities in the project (plus the write-only secret path below).
+# Dataset-scoped where possible; where it is not, the comment on the grant says why.
+# IgniteIQ's other standing identities: the Platform SA (below), the publisher
+# (artifactregistry.tf) and the read-only auditor (iam_auditor.tf).
 
 resource "google_project_iam_member" "forge_job_user" {
   for_each = var.igniteiq_forge_sas

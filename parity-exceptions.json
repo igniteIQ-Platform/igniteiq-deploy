@@ -18,16 +18,6 @@
       "review": "Revisit with the Vault least-privilege pass. Verify in a non-prod tenant first: vault-sa reads ONLY ontology today, but a dashboard or agent querying a forge_* or depot_raw table directly would break on revoke, and that has not been measured."
     },
     {
-      "match": "-> serviceAccount:depot-sa@airworks-igniteiq-data.iam.gserviceaccount.com",
-      "projects": [
-        "airworks-igniteiq-data"
-      ],
-      "reason": "This tenant was never provisioned by this module and does not run the Depot-on-GKE ingestion path, so the identities this module creates legitimately do not exist there. An architectural non-match, not a missing grant. Resolves on migration, at which point this entry should be DELETED rather than updated. Detail in ENG-281.",
-      "accepted_by": "Ryan (2026-08-04, additive-only)",
-      "accepted_on": "2026-08-04",
-      "review": "Delete on ENG-281 completion. Note the VM path needs an SA key, which Eco's org forbids via iam.disableServiceAccountKeyCreation — a tenant with that policy could not run the abctl path at all."
-    },
-    {
       "match": "-> serviceAccount:depot-sa@redwood-igniteiq-data.iam.gserviceaccount.com",
       "projects": [
         "redwood-igniteiq-data"

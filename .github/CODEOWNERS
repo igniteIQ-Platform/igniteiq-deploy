@@ -6,9 +6,8 @@
 # from their Cloud Shell. It is the one repository where a bad merge executes somewhere we
 # do not control and cannot roll back. Everything here is customer-facing by construction.
 #
-# ⚠️ ADVISORY, NOT ENFORCING. CODEOWNERS only blocks a merge when branch protection sets
-# `require_code_owner_reviews` and requires an approving review. This repository has no
-# branch protection today, so these lines auto-request a reviewer and nothing more.
+# ENFORCED. `master` is protected: no direct pushes, and a pull request needs an approving
+# review from a code owner below before it can merge.
 #
 # ⚠️ An owner without write access is silently ignored.
 #

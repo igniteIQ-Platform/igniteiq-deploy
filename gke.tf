@@ -3,7 +3,6 @@
 # schedule with no hand-set requests.
 
 resource "google_container_cluster" "depot" {
-  provider         = google-beta
   project          = var.project_id
   name             = "depot-cluster"
   location         = var.region

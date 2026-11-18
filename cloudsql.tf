@@ -22,7 +22,6 @@ resource "google_secret_manager_secret_version" "depot_sql_root" {
 }
 
 resource "google_sql_database_instance" "depot" {
-  provider         = google-beta
   project          = var.project_id
   name             = "depot-sql"
   region           = var.region
