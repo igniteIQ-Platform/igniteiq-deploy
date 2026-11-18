@@ -47,7 +47,7 @@ variable "igniteiq_org_id" {
 variable "provisioning_token" {
   type        = string
   sensitive   = true
-  description = "Short-lived, single-use, org-scoped token minted by the Studio wizard. The only credential in tfvars; authorizes the two completion callbacks and grants nothing else."
+  description = "Short-lived, single-use, org-scoped token minted by the Studio wizard. The only credential in tfvars; authorizes the two completion callbacks and grants nothing else. The bootstrap scripts read it straight from terraform.tfvars (scripts/provisioning_token.sh), not through Terraform, so keep this declaration even where no resource references it."
 }
 
 # ── IgniteIQ endpoints + identities (wizard supplies; sane defaults) ─────────

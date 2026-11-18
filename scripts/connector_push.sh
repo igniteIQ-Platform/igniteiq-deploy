@@ -8,6 +8,13 @@
 # authorized by a grant the customer made on their own repo.
 set -euo pipefail
 
+# shellcheck source=scripts/provisioning_token.sh
+source "$(dirname "$0")/provisioning_token.sh"
+PROVISIONING_TOKEN="$(provisioning_token)"
+
+RESP="$(mktemp)"
+trap 'rm -f "${RESP}"' EXIT
+
 echo "[connector-push] requesting Depot runtime artifacts → ${REGION}-docker.pkg.dev/${PROJECT_ID}/${TARGET_REPO}/"
 echo "[connector-push]   image: ${IMAGE_NAME}:${IMAGE_TAG}"
 echo "[connector-push]   chart: ${CHART_NAME}:${CHART_VERSION}"
@@ -28,19 +35,31 @@ fi
 body="${body}}"
 
 # Retry — the publisher copy is fast, but AR/network can hiccup.
-for attempt in 1 2 3 4 5; do
-  code=$(curl -s -o /tmp/connector_push_resp.json -w "%{http_code}" --max-time 120 \
+# curl prints 000 itself when it gets no response, so no fallback is echoed.
+attempts=5
+for attempt in $(seq 1 "${attempts}"); do
+  code="$(curl -s -o "${RESP}" -w "%{http_code}" --max-time 120 \
     -X POST "${CALLBACK_BASE_URL}/api/onboarding/connector-push" \
     -H "Authorization: Bearer ${PROVISIONING_TOKEN}" \
     -H "Content-Type: application/json" \
-    -d "${body}" || echo "000")
+    -d "${body}" || true)"
   if [[ "${code}" == "200" ]]; then
     echo "[connector-push] runtime artifacts published into ${TARGET_REPO}."
     exit 0
   fi
-  echo "[connector-push] attempt ${attempt} → HTTP ${code}; retrying..."
-  sleep $((attempt * 10))
+  # A rejected token is rejected the same way every time: stop, and say how to get a new one.
+  if [[ "${code}" == "401" ]]; then
+    echo "[connector-push] FAILED: HTTP 401: $(cat "${RESP}")" >&2
+    echo "[connector-push] The provisioning token was rejected; it is short-lived and single-use." >&2
+    echo "[connector-push] Regenerate the config in the Studio wizard, run scripts/fetch_config.sh <code>, then re-run terraform apply." >&2
+    exit 1
+  fi
+  if [[ "${attempt}" -lt "${attempts}" ]]; then
+    echo "[connector-push] attempt ${attempt} → HTTP ${code}; retrying..."
+    sleep $((attempt * 10))
+  fi
 done
 
-echo "[connector-push] FAILED after retries. The image was not published; the ingestion runtime cannot start. Contact IgniteIQ." >&2
+echo "[connector-push] FAILED after ${attempts} attempts. Last response: HTTP ${code}: $(cat "${RESP}")" >&2
+echo "[connector-push] The image was not published; the ingestion runtime cannot start. Contact IgniteIQ." >&2
 exit 1

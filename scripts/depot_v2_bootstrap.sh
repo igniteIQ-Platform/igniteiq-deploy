@@ -17,6 +17,11 @@ k8s_secret() { # reads KEY=VALUE lines from stdin
     --dry-run=client -o yaml | kubectl apply -f -
 }
 
+# Read the token now, so a missing one stops the run before the install, not after it.
+# shellcheck source=scripts/provisioning_token.sh
+source "$(dirname "$0")/provisioning_token.sh"
+PROVISIONING_TOKEN="$(provisioning_token)"
+
 VALUES="$(mktemp)"
 IMAGES="$(mktemp)"
 PF_PID=""
