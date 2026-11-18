@@ -13,6 +13,9 @@
 # never skipped.
 set -euo pipefail
 
+# shellcheck source=scripts/common.sh
+source "$(dirname "$0")/common.sh"
+
 DEPLOY_MODE="${IGNITEIQ_DEPLOY_MODE:-self-serve}"
 case "${DEPLOY_MODE}" in
   self-serve|white-glove) ;;
@@ -27,7 +30,7 @@ if [[ ! -f terraform.tfvars ]]; then
   exit 1
 fi
 
-PROJECT_ID="$(grep -E '^[[:space:]]*project_id' terraform.tfvars | sed -E 's/.*=[[:space:]]*"([^"]+)".*/\1/')"
+PROJECT_ID="$(tfvars_get project_id)"
 if [[ -z "${PROJECT_ID}" ]]; then
   echo "[preflight] could not read project_id from terraform.tfvars" >&2
   exit 1
@@ -128,6 +131,36 @@ EOF
   exit 1
 else
   echo "[preflight] ✓ domain-restricted sharing not enforced"
+fi
+
+# 4) DEFAULT NETWORK — the module builds on the project's `default` VPC: the database's
+#    private range, the cluster and the relay all use it. An organization can switch off
+#    its automatic creation (compute.skipDefaultNetworkCreation), and the apply then fails
+#    minutes in on a network that was never going to exist.
+#
+#    Only a definite answer fails this check. On a brand-new project the Compute Engine API
+#    is not enabled yet, so the network cannot be looked up at all; that is normal, and the
+#    deploy enables the API, which creates the network unless the policy forbids it.
+NETWORK_FIX="
+    Fix — create it, then re-run:
+      gcloud services enable compute.googleapis.com --project=${PROJECT_ID}
+      gcloud compute networks create default --subnet-mode=auto --project=${PROJECT_ID}
+"
+if NET_ERR="$(gcloud compute networks describe default --project="${PROJECT_ID}" --format='value(name)' --quiet 2>&1 >/dev/null)"; then
+  echo "[preflight] ✓ default network exists"
+elif grep -qiE "networks/default'? was not found" <<<"${NET_ERR}"; then
+  printf '\n  ✗ This project has no "default" VPC network, which the deploy builds on.\n%s\n' "${NETWORK_FIX}" >&2
+  exit 1
+else
+  SKIP_POLICY="$(gcloud org-policies describe compute.skipDefaultNetworkCreation --project="${PROJECT_ID}" --effective --format=json 2>/dev/null \
+    || gcloud resource-manager org-policies describe compute.skipDefaultNetworkCreation --project="${PROJECT_ID}" --effective --format=json 2>/dev/null \
+    || echo '{}')"
+  if grep -qE '"enforced?"[[:space:]]*:[[:space:]]*true' <<<"${SKIP_POLICY}"; then
+    printf '\n  ✗ Your organization disables automatic creation of the "default" VPC network\n    (compute.skipDefaultNetworkCreation), and this project does not have one yet.\n%s\n' "${NETWORK_FIX}" >&2
+    exit 1
+  fi
+  echo "[preflight] ⚠ could not confirm the default network: $(grep -m1 -E '^ERROR' <<<"${NET_ERR}" || echo 'no detail from gcloud')"
+  echo "[preflight]   On a new project that is expected: the deploy enables the Compute Engine API and the network is created with it."
 fi
 
 echo "[preflight] checks passed (mode: ${DEPLOY_MODE}) — continue: bash scripts/bootstrap_state.sh"

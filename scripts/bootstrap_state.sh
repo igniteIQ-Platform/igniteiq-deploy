@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# Creates the customer-owned Terraform state bucket (D3) and points backend.tf
-# at it. Must run before `terraform init` (Cloud Shell state is ephemeral).
+# Creates the customer-owned Terraform state bucket (D3). Must run before `terraform init`
+# (Cloud Shell state is ephemeral). It does not touch backend.tf: the bucket is handed to
+# `terraform init -backend-config`, which scripts/deploy.sh does.
 set -euo pipefail
+
+# shellcheck source=scripts/common.sh
+source "$(dirname "$0")/common.sh"
 
 # Enforce the pre-flight checks here too, so a skipped Step 2 can't lead to a
 # half-provisioned run. IGNITEIQ_DEPLOY_MODE is inherited by the child, and is
@@ -10,9 +14,14 @@ set -euo pipefail
 IGNITEIQ_DEPLOY_MODE="${IGNITEIQ_DEPLOY_MODE:-self-serve}" \
   bash "$(dirname "$0")/preflight.sh"
 
-PROJECT_ID="$(grep -E '^[[:space:]]*project_id' terraform.tfvars | sed -E 's/.*=[[:space:]]*"([^"]+)".*/\1/')"
-REGION="$(grep -E '^[[:space:]]*region' terraform.tfvars | sed -E 's/.*=[[:space:]]*"([^"]+)".*/\1/' || echo us-central1)"
-BUCKET="${PROJECT_ID}-igniteiq-tfstate"
+PROJECT_ID="$(tfvars_get project_id)"
+if [[ -z "${PROJECT_ID}" ]]; then
+  echo "[state] could not read project_id from terraform.tfvars" >&2
+  exit 1
+fi
+REGION="$(tfvars_get region)"
+REGION="${REGION:-us-central1}"
+BUCKET="$(state_bucket "${PROJECT_ID}")"
 
 # Fresh projects don't have the Cloud Storage API enabled — turn it on first, or
 # the bucket create below fails. (Harmless if already enabled.)
@@ -26,7 +35,8 @@ if gcloud storage buckets describe "gs://${BUCKET}" --project="${PROJECT_ID}" >/
 else
   echo "[state] creating gs://${BUCKET}"
   gcloud storage buckets create "gs://${BUCKET}" \
-    --project="${PROJECT_ID}" --location="${REGION}" --uniform-bucket-level-access
+    --project="${PROJECT_ID}" --location="${REGION}" --uniform-bucket-level-access \
+    --public-access-prevention
 fi
 
 # 🔴 Object versioning, and applied on EVERY run rather than only on create.
@@ -40,16 +50,9 @@ fi
 # tenant's was created by hand on 2026-10-22 and needed versioning switched on afterwards. Running
 # it every time is idempotent and repairs those in passing, which a create-only flag
 # would not.
-echo "[state] ensuring object versioning on gs://${BUCKET}"
-gcloud storage buckets update "gs://${BUCKET}" --versioning --project="${PROJECT_ID}"
+# Public-access prevention rides the same every-run update, for the same reason: state
+# holds generated passwords, and a bucket made before this line was created without it.
+echo "[state] ensuring object versioning and public-access prevention on gs://${BUCKET}"
+gcloud storage buckets update "gs://${BUCKET}" --versioning --public-access-prevention --project="${PROJECT_ID}"
 
-cat > backend.tf <<HCL
-terraform {
-  backend "gcs" {
-    bucket = "${BUCKET}"
-    prefix = "depot"
-  }
-}
-HCL
-
-echo "[state] backend.tf points at gs://${BUCKET}. Next: bash scripts/ensure_terraform.sh && terraform init"
+echo "[state] gs://${BUCKET} is ready. Next: bash scripts/ensure_terraform.sh && terraform init -backend-config=\"bucket=${BUCKET}\""

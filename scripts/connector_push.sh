@@ -51,7 +51,7 @@ for attempt in $(seq 1 "${attempts}"); do
   if [[ "${code}" == "401" ]]; then
     echo "[connector-push] FAILED: HTTP 401: $(cat "${RESP}")" >&2
     echo "[connector-push] The provisioning token was rejected; it is short-lived and single-use." >&2
-    echo "[connector-push] Regenerate the config in the Studio wizard, run scripts/fetch_config.sh <code>, then re-run terraform apply." >&2
+    echo "[connector-push] Get a new code from the Studio wizard, then run: bash scripts/deploy.sh <new-code>" >&2
     exit 1
   fi
   if [[ "${attempt}" -lt "${attempts}" ]]; then

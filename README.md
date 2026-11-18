@@ -55,11 +55,20 @@ that clones this repo in the customer's account and opens the tutorial:
 ```
 https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/igniteIQ-Platform/igniteiq-deploy&cloudshell_tutorial=tutorial.md
 ```
-Manual (from a clone with `terraform.tfvars` in place):
+The tutorial is one command, which is also the manual path:
 ```bash
-bash scripts/bootstrap_state.sh    # create the customer-owned state bucket (D3)
+bash scripts/deploy.sh <one-time-code>   # settings → checks → state bucket → init → apply, ~15–20 min
+bash scripts/deploy.sh                   # re-run after a failure; safe to repeat
+# → connector-push + infra-ready callbacks fire → Studio detects completion
+```
+It runs these in order, and each still works by itself (from a clone with
+`terraform.tfvars` in place):
+```bash
+bash scripts/bootstrap_state.sh    # pre-flight checks, then the customer-owned state bucket (D3)
 bash scripts/ensure_terraform.sh   # install Terraform if Cloud Shell lacks it
-terraform init && terraform apply  # ~15–20 min
+terraform init -backend-config="bucket=<project>-igniteiq-tfstate"
+terraform apply
+```
 
 ### Ingestion runtimes — `depot_v1_enabled`, `depot_v2_enabled`
 
@@ -77,7 +86,7 @@ it is already installed is **not** a supported teardown.
 
 ### Deploy mode — `IGNITEIQ_DEPLOY_MODE`
 
-`preflight.sh` (and `bootstrap_state.sh`, which calls it) takes
+`preflight.sh` (and `bootstrap_state.sh` and `deploy.sh`, which run it) takes
 `IGNITEIQ_DEPLOY_MODE=self-serve` (default) or `white-glove`.
 
 The **organization** check is self-serve-only, because what it really tests is the
@@ -87,13 +96,10 @@ customer runs the deploy as themselves, a personal-Gmail caller cannot perform a
 writes. When an IgniteIQ operator runs it, the caller is a service account in an
 org-backed project whose Gaia id resolves, so an org-less target project deploys fine.
 
-The **billing** and **domain-restricted-sharing** checks apply to both modes and are
-never skipped.
+The **billing**, **domain-restricted-sharing** and **default-network** checks apply to
+both modes and are never skipped.
 
 ```bash
 IGNITEIQ_DEPLOY_MODE=white-glove bash scripts/preflight.sh
-IGNITEIQ_DEPLOY_MODE=white-glove bash scripts/bootstrap_state.sh
-```
-
-# → connector-push + infra-ready callbacks fire → Studio detects → Connect ServiceTitan
+IGNITEIQ_DEPLOY_MODE=white-glove bash scripts/deploy.sh --auto-approve
 ```

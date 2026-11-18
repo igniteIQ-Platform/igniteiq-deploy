@@ -43,10 +43,10 @@ jobs:
   # when someone remembers, and this module executes in a customer's own GCP project, as
   # the customer, where we cannot reproduce a failure or roll it back.
   #
-  # ⚠️ `-backend=false` is REQUIRED, not a shortcut. backend.tf is deliberately commented
-  # out because state belongs in the customer's project and the bucket must exist before
-  # `terraform init` — bootstrap_state.sh rewrites the file at run time. Initialising a
-  # backend here would either fail or, worse, reach for state that is not ours.
+  # ⚠️ `-backend=false` is REQUIRED, not a shortcut. backend.tf is a partial gcs backend
+  # that names no bucket: state belongs in the customer's project, and the bucket is passed
+  # to `terraform init` at deploy time. Initialising a backend here would stop to ask for a
+  # bucket or, worse, reach for state that is not ours.
   terraform:
     name: Terraform
     runs-on: ubuntu-latest

@@ -25,16 +25,34 @@ if [[ -z "${CODE}" ]]; then
   exit 2
 fi
 
-echo "[fetch-config] retrieving terraform.tfvars from ${BASE} ..."
-HTTP=$(curl -s -o terraform.tfvars -w "%{http_code}" --max-time 30 \
-  "${BASE}/api/onboarding/config?code=${CODE}" || echo "000")
+# Downloaded beside the target and moved into place only on success. Writing straight to
+# terraform.tfvars destroyed the settings from an earlier run whenever a used code was
+# tried again, which is exactly what re-running the deploy does.
+TMP="$(mktemp terraform.tfvars.XXXXXX)"
+trap 'rm -f "${TMP}"' EXIT
 
+echo "[fetch-config] retrieving terraform.tfvars from ${BASE} ..."
+# curl's own status matters as much as the HTTP one: a connection cut mid-body still reports
+# 200. Either failing leaves the settings already here untouched.
+CURL_RC=0
+HTTP="$(curl -s -o "${TMP}" -w "%{http_code}" --max-time 30 \
+  "${BASE}/api/onboarding/config?code=${CODE}")" || CURL_RC=$?
+
+if [[ "${CURL_RC}" != "0" && "${HTTP}" == "200" ]]; then
+  echo "[fetch-config] FAILED: the download was cut short (curl exit ${CURL_RC}). Get a new code from the Studio wizard and try again." >&2
+  exit 1
+fi
 if [[ "${HTTP}" != "200" ]]; then
-  rm -f terraform.tfvars
   echo "[fetch-config] FAILED (HTTP ${HTTP}). The code may be expired or already used —" >&2
   echo "               regenerate it in the Studio onboarding wizard and try again." >&2
   exit 1
 fi
 
+if ! grep -qE '^[[:space:]]*project_id[[:space:]]*=[[:space:]]*"[^"]+"' "${TMP}"; then
+  echo "[fetch-config] FAILED: the response is not a usable terraform.tfvars (no project_id). Contact IgniteIQ." >&2
+  exit 1
+fi
+
+mv "${TMP}" terraform.tfvars
 echo "[fetch-config] wrote terraform.tfvars."
-echo "[fetch-config] next: bash scripts/bootstrap_state.sh && bash scripts/ensure_terraform.sh && terraform init && terraform apply"
+echo "[fetch-config] next: bash scripts/deploy.sh"
