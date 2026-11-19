@@ -245,3 +245,61 @@ variable "relay_secret_special" {
   default     = false
   description = "Whether the generated relay shared secret may contain special characters. Override only to match an imported tenant."
 }
+
+# ── QuickBooks Desktop — off by default (quickbooks_desktop.tf) ─────────────────────────
+variable "quickbooks_desktop_enabled" {
+  type        = bool
+  default     = false
+  description = "Stand up the QuickBooks Desktop Web Connector service, the read API that serves its records to the ingestion runtime, the landing bucket and their two secrets. Additive; false creates nothing."
+}
+
+variable "quickbooks_desktop_qbwc_image_digest" {
+  type        = string
+  default     = ""
+  description = "sha256 digest of the qbwc image in this project's depot-connectors repository. Required when quickbooks_desktop_enabled is true."
+}
+
+variable "quickbooks_desktop_read_api_image_digest" {
+  type        = string
+  default     = ""
+  description = "sha256 digest of the read-api image in this project's depot-connectors repository. Required when quickbooks_desktop_enabled is true."
+}
+
+variable "quickbooks_desktop_username" {
+  type        = string
+  default     = "igniteiq-sync"
+  description = "The user name the .QWC file sends to the Web Connector service. Not a secret; the password is generated into Secret Manager."
+}
+
+variable "quickbooks_desktop_timezone" {
+  type        = string
+  default     = "America/Chicago"
+  description = "IANA time zone of the server QuickBooks runs on. Run windows are read in it, and QuickBooks' modification times are its wall-clock time."
+}
+
+variable "quickbooks_desktop_run_windows" {
+  type = list(object({
+    start = string
+    end   = string
+  }))
+  default     = []
+  description = "When a sync may run, as HH:MM start and end in quickbooks_desktop_timezone. The customer chooses these. Empty (the default) means no sync runs: the service answers the Web Connector with nothing to do."
+}
+
+variable "quickbooks_desktop_history_start" {
+  type        = string
+  default     = ""
+  description = "First date (YYYY-MM-DD) of the company file's history, so the General Ledger backfill does not walk empty years. Empty uses the service's default."
+}
+
+variable "quickbooks_desktop_qbwc_settings" {
+  type        = any
+  default     = {}
+  description = "Further Web Connector service settings, merged over the ones above (for example request_budget). The service rejects any key it does not know, at start-up."
+}
+
+variable "quickbooks_desktop_promoted" {
+  type        = list(string)
+  default     = []
+  description = "The streams the read API serves, and so the only ones the ingestion runtime can load into BigQuery. Everything the Web Connector service lands stays in the bucket whether listed or not. Empty serves nothing."
+}

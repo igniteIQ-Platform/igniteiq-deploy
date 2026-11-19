@@ -26,3 +26,13 @@ output "servicetitan_secret_shells" {
 # The relay URL / workspace ID / client creds are produced by the runtime
 # bootstrap and reported to IgniteIQ via the infra-ready callback; they are not
 # Terraform-managed outputs (they originate inside the cluster at apply time).
+
+output "quickbooks_desktop_qbwc_url" {
+  value       = local.qbd == 1 ? google_cloud_run_v2_service.depot_qbwc[0].uri : null
+  description = "The Web Connector service's URL: the AppURL in the .QWC file. Null unless quickbooks_desktop_enabled."
+}
+
+output "quickbooks_desktop_read_api_url" {
+  value       = local.qbd == 1 ? google_cloud_run_v2_service.depot_read_api[0].uri : null
+  description = "The read API's URL: the base_url of the ingestion runtime's QuickBooks Desktop connection. Null unless quickbooks_desktop_enabled."
+}
