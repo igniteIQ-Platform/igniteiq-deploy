@@ -39,11 +39,10 @@ Flat Terraform at the root — `network.tf`, `cloudsql.tf`, `gke.tf`, `iam.tf`, 
 ## Common commands
 
 ```bash
-bash scripts/fetch_config.sh <code>  # terraform.tfvars from the wizard
+bash scripts/deploy.sh <code>        # everything below, in order; safe to re-run
 bash scripts/preflight.sh            # catches the #1 blocker pre-apply
-bash scripts/bootstrap_state.sh      # state bucket; REWRITES backend.tf
-bash scripts/ensure_terraform.sh     # Cloud Shell may lack Terraform
-terraform init && terraform apply    # ~15-20 min
+bash scripts/bootstrap_state.sh      # state bucket (runs preflight first)
+terraform init -backend=false        # validate locally, no state
 python3 scripts/check_provision_parity.py --self-test
 python3 scripts/check_provision_parity.py --project <proj> --slug <slug>
 ```
@@ -58,7 +57,7 @@ All three are encoded in `depends_on` or script sequence, surfaced in the ENG-25
 
 ## Traps where the tooling lies
 
-- **`backend.tf` is deliberately commented out.** State belongs in the customer's project (D3) and the bucket must exist before `terraform init`, so `bootstrap_state.sh` **rewrites the file**. Left commented so the module validates and inits locally. Not an oversight — do not "fix" it, and do not hand-edit expecting it to survive.
+- **`backend.tf` is a partial backend: it names no bucket.** State belongs in the customer's project (D3), so the bucket is passed at init (`-backend-config="bucket=<project>-igniteiq-tfstate"`; `deploy.sh` does it). A bare `terraform init` therefore prompts for a bucket — use `-backend=false` to validate. Never commit a bucket name into the file.
 - **`\s` is a GNU extension, and Cloud Shell is not your laptop.** `grep -E '^\s*project_id'` matched nothing there, so `preflight.sh` read an empty project id and reported **"no Organization"** — a confident, wrong diagnosis of the very blocker it exists to catch. Fixed in `5400c32` via `[[:space:]]`. Scripts run in the customer's shell: assume POSIX, prefer character classes.
 - ~~**There is no CI here.**~~ Fixed 2026-08-30: `checks.yml` runs `terraform fmt -check` + `validate` (with `-backend=false`, required — see below), `shellcheck -S error` over `scripts/`, the parity-check self-test, and the bare-hostname rule. `master` is protected: no direct pushes, and a merge needs a code-owner review. Whether the checks are *required* is a repo setting — confirm it there, and read the run either way (SOC 2 CM-05).
 

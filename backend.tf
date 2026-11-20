@@ -1,11 +1,17 @@
-# Terraform state lives in the CUSTOMER's project (D3). The bucket must exist
-# BEFORE `terraform init` (Cloud Shell is ephemeral — local state would be lost).
-# The wizard's bootstrap creates it, then uncomments this block. Left commented
-# so the module validates/inits with local state during development.
+# Terraform state lives in the CUSTOMER's project (D3), in a bucket that
+# scripts/bootstrap_state.sh creates before `terraform init` (Cloud Shell is ephemeral, so
+# local state would be lost).
 #
-# terraform {
-#   backend "gcs" {
-#     bucket = "REPLACED_BY_BOOTSTRAP"   # e.g. <project>-igniteiq-tfstate
-#     prefix = "depot"
-#   }
-# }
+# A partial configuration: the bucket differs per project, so it is supplied at init and
+# never written into this file.
+#
+#   terraform init -backend-config="bucket=<project>-igniteiq-tfstate"
+#
+# scripts/deploy.sh does that for you. To validate without any state, as CI does:
+#
+#   terraform init -backend=false
+terraform {
+  backend "gcs" {
+    prefix = "depot"
+  }
+}

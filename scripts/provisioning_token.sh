@@ -14,6 +14,9 @@
 #
 # Never echo the token: script output is no longer hidden.
 
+# shellcheck source=scripts/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
 provisioning_token() {
   if [[ -n "${PROVISIONING_TOKEN:-}" ]]; then
     printf '%s' "${PROVISIONING_TOKEN}"
@@ -26,8 +29,7 @@ provisioning_token() {
     return 1
   fi
 
-  # Character classes, not \s: this runs in the customer's shell (see AGENTS.md).
-  token="$(sed -nE 's/^[[:space:]]*provisioning_token[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/p' "${file}" | head -n 1)"
+  token="$(tfvars_get provisioning_token "${file}")"
   if [[ -z "${token}" ]]; then
     echo "[provisioning-token] no provisioning_token in ${file}. Regenerate the config in the Studio wizard, or export PROVISIONING_TOKEN." >&2
     return 1
