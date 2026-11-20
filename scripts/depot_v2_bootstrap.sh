@@ -115,7 +115,7 @@ fi
 # waits for that hook to finish.
 log "installing chart ${VERSION}"
 helm upgrade --install depot-v2 "${CHART_OCI_REF}" --version "${VERSION}" \
-  -n "${NAMESPACE}" -f "${VALUES}" -f "${IMAGES}" ${WORKER_ARGS[@]+"${WORKER_ARGS[@]}"} --timeout 15m
+  -n "${NAMESPACE}" -f "${VALUES}" -f "${IMAGES}" ${WORKER_ARGS[@]+"${WORKER_ARGS[@]}"} --reset-then-reuse-values --timeout 15m
 kubectl rollout status deployment/depot-v2-server -n "${NAMESPACE}" --timeout=10m
 
 # The operator: its own release in its own namespace, never part of the engine's (an
